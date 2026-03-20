@@ -70,7 +70,7 @@ try {
                     </div>
 
                     <div class="product-page__info">
-                        <h1 class="product-page__title"><?php echo htmlspecialchars($product['name']); ?></h1>
+                        <h3 class="product-page__title"><?php echo htmlspecialchars($product['name']); ?></h3>
 
                         <div class="product-page__prices">
                             <?php if ($discount_percent): ?>
@@ -214,9 +214,9 @@ try {
                             <a href="/pages/page-product.php?id=<?php echo (int)$p['id']; ?>" class="product-card__link">
                                 <img src="<?php echo htmlspecialchars($p_image); ?>" alt="<?php echo htmlspecialchars($p['name']); ?>" class="product-card__image" loading="lazy">
                             </a>
-                            <h3 class="product-card__name">
+                            <h4 class="product-card__name">
                                 <a href="/pages/page-product.php?id=<?php echo (int)$p['id']; ?>"><?php echo htmlspecialchars($p['name']); ?></a>
-                            </h3>
+                            </h4>
                             <div class="product-card__price">
                                 <?php if ($p_discount): ?>
                                     <span class="product-card__price--old"><?php echo format_price($p_price_old); ?></span>

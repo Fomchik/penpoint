@@ -1,5 +1,5 @@
 <?php
-header('Content-Type: application/json');
+header('Content-Type: application/json; charset=utf-8');
 require_once __DIR__ . '/../includes/config.php';
 
 $product_ids = isset($_GET['ids']) ? explode(',', $_GET['ids']) : [];
@@ -8,7 +8,7 @@ $product_ids = array_values(array_filter(array_map('intval', $product_ids), func
 }));
 
 if (empty($product_ids)) {
-    echo json_encode([]);
+    echo json_encode([], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
     exit;
 }
 
@@ -37,8 +37,8 @@ try {
     }
     unset($product);
 
-    echo json_encode($products);
+    echo json_encode($products, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
 } catch (PDOException $e) {
     error_log('API error: ' . $e->getMessage());
-    echo json_encode([]);
+    echo json_encode([], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
 }

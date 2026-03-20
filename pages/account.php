@@ -59,7 +59,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['send_feedback'])) {
     }
 }
 
-// Получае заказы пользователя
+//  Заказы пользователя
 try {
     $stmt = $pdo->prepare("
         SELECT o.id, o.total_price, o.created_at, os.name as status_name
@@ -75,7 +75,7 @@ try {
     $orders = [];
 }
 
-// Получае збранные товары (з localStorage через JS)
+// Забранные товары (из localStorage через JS)
 ?>
 <!DOCTYPE html>
 <html lang="ru">
@@ -90,224 +90,9 @@ try {
     <link rel="stylesheet" href="/styles/header.css">
     <link rel="stylesheet" href="/styles/footer.css">
     <link rel="stylesheet" href="/styles/product-card.css">
+    <link rel="stylesheet" href="/styles/account.css">
     <title>Личный кабинет — Канцария</title>
-    <style>
-        .account-page {
-            display: grid;
-            grid-template-columns: 280px 1fr;
-            gap: 32px;
-            padding-top: 32px;
-            padding-bottom: 80px;
-        }
-        .account-nav {
-            background: #fff;
-            border: 1px solid #e5e5e5;
-            border-radius: 8px;
-            padding: 24px;
-            height: fit-content;
-        }
-        .account-nav__title {
-            font-size: 1.25rem;
-            font-weight: 700;
-            margin-bottom: 20px;
-            color: #2e2e2e;
-        }
-        .account-nav__list {
-            list-style: none;
-            margin: 0;
-            padding: 0;
-        }
-        .account-nav__item {
-            margin-bottom: 8px;
-        }
-        .account-nav__link {
-            display: flex;
-            align-items: center;
-            gap: 12px;
-            padding: 12px;
-            color: #666;
-            text-decoration: none;
-            border-radius: 6px;
-            transition: background-color 0.2s ease, color 0.2s ease;
-        }
-        .account-nav__link:hover,
-        .account-nav__link--active {
-            background: #f5f5f5;
-            color: #D55204;
-        }
-        .account-nav__badge {
-            margin-left: auto;
-            background: #D55204;
-            color: #fff;
-            font-size: 0.75rem;
-            padding: 2px 8px;
-            border-radius: 10px;
-            min-width: 20px;
-            text-align: center;
-        }
-        .account-content {
-            background: #fff;
-            border: 1px solid #e5e5e5;
-            border-radius: 8px;
-            padding: 32px;
-        }
-        .account-content__title {
-            font-size: 1.5rem;
-            font-weight: 700;
-            margin-bottom: 24px;
-            color: #2e2e2e;
-        }
-        .account-section {
-            display: none;
-        }
-        .account-section--active {
-            display: block;
-        }
-        .profile-form__field {
-            margin-bottom: 20px;
-        }
-        .profile-form__label {
-            display: block;
-            margin-bottom: 8px;
-            font-weight: 600;
-            color: #2e2e2e;
-        }
-        .profile-form__input {
-            width: 100%;
-            height: 44px;
-            padding: 0 16px;
-            border: 1px solid #e5e5e5;
-            border-radius: 6px;
-            font-size: 1rem;
-            outline: none;
-        }
-        .profile-form__input:focus {
-            border-color: #D55204;
-        }
-        .profile-form__submit {
-            padding: 12px 24px;
-            background: #D55204;
-            color: #fff;
-            border: none;
-            border-radius: 6px;
-            font-weight: 600;
-            cursor: pointer;
-            transition: background-color 0.2s ease;
-        }
-        .profile-form__submit:hover {
-            background: #b84503;
-        }
-        .orders-list {
-            list-style: none;
-            margin: 0;
-            padding: 0;
-        }
-        .orders-item {
-            border: 1px solid #e5e5e5;
-            border-radius: 8px;
-            padding: 20px;
-            margin-bottom: 16px;
-        }
-        .orders-item__header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 12px;
-        }
-        .orders-item__id {
-            font-weight: 700;
-            color: #2e2e2e;
-        }
-        .orders-item__status {
-            padding: 4px 12px;
-            border-radius: 12px;
-            font-size: 0.875rem;
-            font-weight: 600;
-        }
-        .orders-item__status--new {
-            background: #e3f2fd;
-            color: #1976d2;
-        }
-        .orders-item__status--processing {
-            background: #fff3e0;
-            color: #f57c00;
-        }
-        .orders-item__status--sent {
-            background: #e8f5e9;
-            color: #388e3c;
-        }
-        .orders-item__status--delivered {
-            background: #e8f5e9;
-            color: #2e7d32;
-        }
-        .orders-item__status--cancelled {
-            background: #ffebee;
-            color: #c62828;
-        }
-        .orders-item__date {
-            color: #666;
-            font-size: 0.875rem;
-        }
-        .orders-item__total {
-            font-size: 1.125rem;
-            font-weight: 700;
-            color: #D55204;
-        }
-        .favorites-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
-            gap: 24px;
-        }
-        .feedback-form__field {
-            margin-bottom: 20px;
-        }
-        .feedback-form__label {
-            display: block;
-            margin-bottom: 8px;
-            font-weight: 600;
-            color: #2e2e2e;
-        }
-        .feedback-form__input,
-        .feedback-form__textarea {
-            width: 100%;
-            padding: 12px 16px;
-            border: 1px solid #e5e5e5;
-            border-radius: 6px;
-            font-size: 1rem;
-            outline: none;
-            font-family: inherit;
-        }
-        .feedback-form__textarea {
-            min-height: 120px;
-            resize: vertical;
-        }
-        .feedback-form__input:focus,
-        .feedback-form__textarea:focus {
-            border-color: #D55204;
-        }
-        .message {
-            padding: 12px;
-            border-radius: 6px;
-            margin-bottom: 20px;
-        }
-        .message--error {
-            background: #fee;
-            color: #c33;
-        }
-        .message--success {
-            background: #efe;
-            color: #3c3;
-        }
-        .empty-state {
-            text-align: center;
-            padding: 60px 20px;
-            color: #666;
-        }
-        .empty-state__icon {
-            font-size: 3rem;
-            margin-bottom: 16px;
-        }
-    </style>
+    
 </head>
 <body>
     <?php include __DIR__ . '/../includes/header.php'; ?>
@@ -329,7 +114,7 @@ try {
                     </li>
                     <li class="account-nav__item">
                         <a href="/pages/account.php?tab=favorites" class="account-nav__link <?php echo $current_tab === 'favorites' ? 'account-nav__link--active' : ''; ?>">
-                            <span>збранное</span>
+                            <span>Избранное</span>
                             <span class="account-nav__badge" id="favorites-count">0</span>
                         </a>
                     </li>
@@ -342,9 +127,9 @@ try {
             </nav>
 
             <div class="account-content">
-                <!-- Профль -->
+                <!-- Профиль -->
                 <div class="account-section <?php echo $current_tab === 'profile' ? 'account-section--active' : ''; ?>" id="profile-section">
-                    <h2 class="account-content__title">Реактроване профля</h2>
+                    <h2 class="account-content__title">Редактирование профиля</h2>
                     <?php if (isset($_GET['success'])): ?>
                         <div class="message message--success">Данные успешно обновлены!</div>
                     <?php endif; ?>
@@ -353,7 +138,7 @@ try {
                     <?php endif; ?>
                     <form method="post" class="profile-form">
                         <div class="profile-form__field">
-                            <label class="profile-form__label">я</label>
+                            <label class="profile-form__label">Имя</label>
                             <input type="text" name="name" class="profile-form__input" value="<?php echo htmlspecialchars($user['name'] ?? ''); ?>" required>
                         </div>
                         <div class="profile-form__field">
@@ -365,19 +150,19 @@ try {
                             <input type="tel" name="phone" class="profile-form__input" value="<?php echo htmlspecialchars($user['phone'] ?? ''); ?>">
                         </div>
                         <div class="profile-form__field">
-                            <label class="profile-form__label">Дата регстрац</label>
+                            <label class="profile-form__label">Дата регистрации</label>
                             <input type="text" class="profile-form__input" value="<?php echo $user ? date('d.m.Y', strtotime($user['created_at'])) : ''; ?>" disabled>
                         </div>
-                        <button type="submit" name="update_profile" class="profile-form__submit">Сохранть зененя</button>
+                        <button type="submit" name="update_profile" class="profile-form__submit">Сохранить изменения</button>
                         <div style="margin-top: 24px; padding-top: 24px; border-top: 1px solid #e5e5e5;">
-                            <a href="/pages/logout.php" style="color: #c33; text-decoration: none; font-weight: 600;">Выйт з аккаунта</a>
+                            <a href="/pages/logout.php" style="color: #c33; text-decoration: none; font-weight: 600;">Выйти из аккаунта</a>
                         </div>
                     </form>
                 </div>
 
                 <!-- Заказы -->
                 <div class="account-section <?php echo $current_tab === 'orders' ? 'account-section--active' : ''; ?>" id="orders-section">
-                    <h2 class="account-content__title">сторя заказов</h2>
+                    <h2 class="account-content__title">История заказов</h2>
                     <?php if (empty($orders)): ?>
                         <div class="empty-state">
                             <div class="empty-state__icon">📦</div>
@@ -405,13 +190,12 @@ try {
                     <?php endif; ?>
                 </div>
 
-                <!-- збранное -->
+                <!-- избранное -->
                 <div class="account-section <?php echo $current_tab === 'favorites' ? 'account-section--active' : ''; ?>" id="favorites-section">
-                    <h2 class="account-content__title">збранные товары</h2>
+                    <h2 class="account-content__title">Избранное</h2>
                     <div class="favorites-grid" id="favorites-grid">
                         <div class="empty-state">
-                            <div class="empty-state__icon">РІСњВ¤РїСРЏ</div>
-                            <p>Спсок збранного пуст</p>
+                            <p>Список избранного пуст</p>
                         </div>
                     </div>
                 </div>
@@ -427,14 +211,14 @@ try {
                     <?php endif; ?>
                     <form method="post" class="feedback-form">
                         <div class="feedback-form__field">
-                            <label class="feedback-form__label">РўРµРР°</label>
+                            <label class="feedback-form__label">Тема</label>
                             <input type="text" name="subject" class="feedback-form__input" required>
                         </div>
                         <div class="feedback-form__field">
-                            <label class="feedback-form__label">Сообщене</label>
+                            <label class="feedback-form__label">Сообщение</label>
                             <textarea name="message" class="feedback-form__textarea" required></textarea>
                         </div>
-                        <button type="submit" name="send_feedback" class="profile-form__submit">Отправть</button>
+                        <button type="submit" name="send_feedback" class="profile-form__submit">Отправить</button>
                     </form>
                 </div>
             </div>
@@ -464,13 +248,13 @@ try {
                 .then(response => response.json())
                 .then(products => {
                     if (products.length === 0) {
-                        grid.innerHTML = '<div class="empty-state"><div class="empty-state__icon">❤</div><p>Спсок збранного пуст</p></div>';
+                        grid.innerHTML = '<div class="empty-state"><div class="empty-state__icon">❤</div><p>Список избранного пуст</p></div>';
                         return;
                     }
                     
                     grid.innerHTML = products.map(product => `
                         <article class="product-card">
-                            <button type="button" class="product-card__wishlist" aria-label="В збранное" data-product-id="${product.id}">
+                            <button type="button" class="product-card__wishlist" aria-label="В избранное" data-product-id="${product.id}">
                                 <img src="/assets/icons/heart.svg" alt="" class="product-card__wishlist-icon">
                             </button>
                             <a href="/pages/page-product.php?id=${product.id}" class="product-card__link">
