@@ -1,5 +1,6 @@
 <?php
-session_start();
+require_once __DIR__ . '/../includes/security.php';
+app_start_session();
 require_once __DIR__ . '/../includes/config.php';
 
 try {

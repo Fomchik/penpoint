@@ -1,5 +1,6 @@
 <?php
-session_start();
+require_once __DIR__ . '/../includes/security.php';
+app_start_session();
 require_once __DIR__ . '/../includes/config.php';
 
 $success_message = '';
@@ -19,6 +20,7 @@ $subject_options = [
 ];
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    app_validate_csrf_or_fail();
     $is_valid = (
         $name !== '' &&
         $phone !== '' &&
@@ -201,6 +203,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         <?php endif; ?>
 
                         <form method="post" class="contacts-form">
+                            <?php echo app_csrf_input(); ?>
                             <div class="contacts-form__row">
                                 <label class="contacts-form__field">
                                     <span class="contacts-form__label">Ваше имя</span>

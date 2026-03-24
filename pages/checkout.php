@@ -1,4 +1,6 @@
-<?php session_start();
+<?php
+require_once __DIR__ . '/../includes/security.php';
+app_start_session();
 require_once __DIR__ . '/../includes/config.php';
 $is_logged_in = isset($_SESSION['user_id']);
 $user_id = $is_logged_in ? (int)$_SESSION['user_id'] : 0;
@@ -27,6 +29,7 @@ function create_guest_order_user(PDO $pdo, string $customer_name, string $custom
 }
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    app_validate_csrf_or_fail();
     $customer_name = trim($_POST['customer_name'] ?? '');
     $customer_phone = trim($_POST['customer_phone'] ?? '');
     $customer_email = trim($_POST['customer_email'] ?? '');
@@ -143,6 +146,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     <div class="checkout-alert checkout-alert--success"><?php echo htmlspecialchars($order_success); ?></div>
                 <?php endif; ?>
                 <form method="post" id="order-form" novalidate>
+                    <?php echo app_csrf_input(); ?>
                     <section class="checkout-step">
                         <h2 class="checkout-step__title"><span class="checkout-step__idx">1</span>Данные покупателя</h2>
                         <div class="checkout-fields-grid">

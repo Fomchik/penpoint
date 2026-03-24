@@ -10,8 +10,8 @@ if (!defined('YOOKASSA_API_URL')) {
  
 function yookassa_get_config(): array
 {
-    $shopId = trim((string)(getenv('YOOKASSA_SHOP_ID') ?: '1215691'));
-    $secretKey = trim((string)(getenv('YOOKASSA_SECRET_KEY') ?: 'test_44MMZ_zV2Jop1JobEw3E2GWY0s151Eu3S8YIVo-tjXg'));
+    $shopId = trim((string)(getenv('YOOKASSA_SHOP_ID') ?: ''));
+    $secretKey = trim((string)(getenv('YOOKASSA_SECRET_KEY') ?: ''));
 
     if ($shopId === '' || $secretKey === '') {
         throw new RuntimeException('YooKassa credentials are not configured.');

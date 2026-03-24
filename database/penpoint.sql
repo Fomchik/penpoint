@@ -536,7 +536,7 @@ CREATE TABLE `users` (
 --
 
 INSERT INTO `users` (`id`, `role_id`, `name`, `email`, `password_hash`, `phone`, `created_at`) VALUES
-(11, 1, 'Admin', 'admin@penpoint.local', '$2y$10$seedseedseedseedseedseedseedseedseedseedse', NULL, '2026-01-01 10:05:00');
+(11, 1, 'Admin', 'cantsaria@yandex.ru', '$2y$12$MOlqTa2Wh4Uq5Bp1IHPaTu9H7Ctr4DStozbvHfXIUrNDMdL2/qrfG', NULL, '2026-01-01 10:05:00');
 
 -- --------------------------------------------------------
 

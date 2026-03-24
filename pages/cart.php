@@ -1,5 +1,6 @@
-﻿<?php
-session_start();
+<?php
+require_once __DIR__ . '/../includes/security.php';
+app_start_session();
 require_once __DIR__ . '/../includes/config.php';
 ?>
 <!DOCTYPE html>
@@ -120,6 +121,23 @@ require_once __DIR__ . '/../includes/config.php';
                 return new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 0 }).format(num) + ' ₽';
             }
 
+            function escapeHtml(value) {
+                return String(value)
+                    .replace(/&/g, '&amp;')
+                    .replace(/</g, '&lt;')
+                    .replace(/>/g, '&gt;')
+                    .replace(/"/g, '&quot;')
+                    .replace(/'/g, '&#039;');
+            }
+
+            function safePath(value, fallback = '') {
+                const s = String(value || '');
+                if (!s.startsWith('/')) {
+                    return fallback;
+                }
+                return s.replace(/"/g, '%22').replace(/'/g, '%27');
+            }
+
             function pluralizeProduct(num) {
                 const n10 = num % 10;
                 const n100 = num % 100;
@@ -205,11 +223,11 @@ require_once __DIR__ . '/../includes/config.php';
                     totalOldPrice += lineOldPrice || linePrice;
 
                     rows.push(`
-                        <article class="cart-item-row" data-id="${item.id}">
-                            <div class="cart-item-row__image"><img src="${product.image}" alt="${product.name}"></div>
+                        <article class="cart-item-row" data-id="${Number(item.id) || 0}">
+                            <div class="cart-item-row__image"><img src="${safePath(product.image, '/assets/product_images/default.png')}" alt="${escapeHtml(product.name)}"></div>
                             <div class="cart-item-row__content">
-                                <h3 class="cart-item-row__name">${product.name}</h3>
-                                <div class="cart-item-row__meta">${product.article || 'Артикул не указан'}</div>
+                                <h3 class="cart-item-row__name">${escapeHtml(product.name)}</h3>
+                                <div class="cart-item-row__meta">${escapeHtml(product.article || 'Артикул не указан')}</div>
                                 <div class="cart-item-row__tools">
                                     <div class="cart-item-row__qty">
                                         <button type="button" class="cart-item-row__qty-btn" data-action="dec">−</button>

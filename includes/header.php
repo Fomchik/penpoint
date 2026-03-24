@@ -3,17 +3,23 @@ if (!defined('BASE_PATH')) {
     define('BASE_PATH', '');
 }
 
-$base = BASE_PATH;
-if (session_status() === PHP_SESSION_NONE) {
-    session_start();
-}
+require_once __DIR__ . '/security.php';
 
-$is_logged_in = isset($_SESSION['user_id']);
+$base = BASE_PATH;
+app_start_session();
+
+$is_logged_in = isset($_SESSION['user_id']) || isset($_SESSION['admin_user_id']);
+$is_admin = (string)($_SESSION['role_name'] ?? '') === 'admin' || isset($_SESSION['admin_user_id']);
+$account_link = $base . '/pages/login.php';
+if ($is_logged_in) {
+    $account_link = $is_admin ? $base . '/admin/index.php' : $base . '/pages/account.php';
+}
 $current_uri = $_SERVER['REQUEST_URI'];
 $is_home = ($current_uri === $base . '/' || $current_uri === $base . '/index.php' || strpos($current_uri, 'pages/index.php') !== false);
 $is_catalog = (strpos($current_uri, 'catalog.php') !== false);
 $is_sales = (strpos($current_uri, 'sales.php') !== false);
 $is_contacts = (strpos($current_uri, 'contacts.php') !== false);
+$is_admin_page = (strpos($current_uri, '/admin/') !== false);
 ?>
 <header class="header">
     <a href="<?php echo $base; ?>/index.php" class="header__logo">
@@ -26,6 +32,9 @@ $is_contacts = (strpos($current_uri, 'contacts.php') !== false);
             <li class="header__nav-item"><a href="<?php echo $base; ?>/pages/catalog.php" class="header__link <?php echo $is_catalog ? 'active' : ''; ?>">Каталог</a></li>
             <li class="header__nav-item"><a href="<?php echo $base; ?>/pages/sales.php" class="header__link <?php echo $is_sales ? 'active' : ''; ?>">Акции</a></li>
             <li class="header__nav-item"><a href="<?php echo $base; ?>/pages/contacts.php" class="header__link <?php echo $is_contacts ? 'active' : ''; ?>">Контакты</a></li>
+            <?php if ($is_admin): ?>
+                <li class="header__nav-item"><a href="<?php echo $base; ?>/admin/index.php" class="header__link <?php echo $is_admin_page ? 'active' : ''; ?>">Админ-панель</a></li>
+            <?php endif; ?>
         </ul>
     </nav>
 
@@ -49,7 +58,7 @@ $is_contacts = (strpos($current_uri, 'contacts.php') !== false);
             <span class="header__cart-badge" id="cart-badge">0</span>
         </a>
 
-        <a href="<?php echo $is_logged_in ? $base . '/pages/account.php' : $base . '/pages/login.php'; ?>" class="header__action" aria-label="Личный кабинет">
+        <a href="<?php echo $account_link; ?>" class="header__action" aria-label="Личный кабинет">
             <img src="<?php echo $base; ?>/assets/icons/user.svg" alt="" class="header__action-icon">
         </a>
     </div>

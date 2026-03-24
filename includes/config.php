@@ -23,7 +23,9 @@ try {
     );
     $pdo->exec("SET NAMES 'utf8mb4'");
 } catch (PDOException $e) {
-    die('Database connection error: ' . $e->getMessage());
+    error_log('Database connection error: ' . $e->getMessage());
+    http_response_code(500);
+    exit('Internal server error.');
 }
 
 function format_price($price) {

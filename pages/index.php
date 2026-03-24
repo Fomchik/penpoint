@@ -1,4 +1,7 @@
-<?php session_start(); ?>
+<?php
+require_once __DIR__ . '/../includes/security.php';
+app_start_session();
+?>
 <!DOCTYPE html>
 <html lang="ru">
 

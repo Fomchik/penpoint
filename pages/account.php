@@ -1,5 +1,6 @@
 <?php
-session_start();
+require_once __DIR__ . '/../includes/security.php';
+app_start_session();
 require_once __DIR__ . '/../includes/config.php';
 
 // Проверка авторзац
@@ -8,14 +9,32 @@ if (!isset($_SESSION['user_id'])) {
     exit;
 }
 
+if ((string)($_SESSION['role_name'] ?? '') === 'admin' || isset($_SESSION['admin_user_id'])) {
+    header('Location: /admin/index.php');
+    exit;
+}
+
 $user_id = (int)$_SESSION['user_id'];
 $current_tab = $_GET['tab'] ?? 'profile';
 
 // Получае анные пользователя
 try {
-    $stmt = $pdo->prepare("SELECT id, name, email, phone, created_at FROM users WHERE id = ?");
+    $stmt = $pdo->prepare("
+        SELECT u.id, u.name, u.email, u.phone, u.created_at, r.name AS role_name
+        FROM users u
+        INNER JOIN roles r ON r.id = u.role_id
+        WHERE u.id = ?
+    ");
     $stmt->execute([$user_id]);
     $user = $stmt->fetch();
+    if ($user && (string)($user['role_name'] ?? '') === 'admin') {
+        $_SESSION['role_name'] = 'admin';
+        $_SESSION['admin_user_id'] = (int)$user['id'];
+        $_SESSION['admin_user_name'] = (string)$user['name'];
+        $_SESSION['admin_user_email'] = (string)$user['email'];
+        header('Location: /admin/index.php');
+        exit;
+    }
 } catch (PDOException $e) {
     error_log('Database error: ' . $e->getMessage());
     $user = null;
@@ -23,6 +42,7 @@ try {
 
 // Обработка обновленя профля
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['update_profile'])) {
+    app_validate_csrf_or_fail();
     $name = trim($_POST['name'] ?? '');
     $email = trim($_POST['email'] ?? '');
     $phone = trim($_POST['phone'] ?? '');
@@ -42,6 +62,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['update_profile'])) {
 
 // Обработка обратной связ
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['send_feedback'])) {
+    app_validate_csrf_or_fail();
     $subject = trim($_POST['subject'] ?? '');
     $message = trim($_POST['message'] ?? '');
     
@@ -137,6 +158,7 @@ try {
                         <div class="message message--error"><?php echo htmlspecialchars($error); ?></div>
                     <?php endif; ?>
                     <form method="post" class="profile-form">
+                        <?php echo app_csrf_input(); ?>
                         <div class="profile-form__field">
                             <label class="profile-form__label">Имя</label>
                             <input type="text" name="name" class="profile-form__input" value="<?php echo htmlspecialchars($user['name'] ?? ''); ?>" required>
@@ -155,8 +177,11 @@ try {
                         </div>
                         <button type="submit" name="update_profile" class="profile-form__submit">Сохранить изменения</button>
                         <div style="margin-top: 24px; padding-top: 24px; border-top: 1px solid #e5e5e5;">
-                            <a href="/pages/logout.php" style="color: #c33; text-decoration: none; font-weight: 600;">Выйти из аккаунта</a>
+                            <button type="submit" form="logout-form" style="color: #c33; text-decoration: none; font-weight: 600; background: none; border: none; padding: 0; cursor: pointer;">Выйти из аккаунта</button>
                         </div>
+                    </form>
+                    <form method="post" id="logout-form" action="/pages/logout.php">
+                        <?php echo app_csrf_input(); ?>
                     </form>
                 </div>
 
@@ -210,6 +235,7 @@ try {
                         <div class="message message--success"><?php echo htmlspecialchars($feedback_success); ?></div>
                     <?php endif; ?>
                     <form method="post" class="feedback-form">
+                        <?php echo app_csrf_input(); ?>
                         <div class="feedback-form__field">
                             <label class="feedback-form__label">Тема</label>
                             <input type="text" name="subject" class="feedback-form__input" required>
@@ -228,6 +254,23 @@ try {
     <?php include __DIR__ . '/../includes/footer.php'; ?>
 
     <script>
+        function escapeHtml(value) {
+            return String(value)
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#039;');
+        }
+
+        function safePath(value, fallback = '') {
+            const s = String(value || '');
+            if (!s.startsWith('/')) {
+                return fallback;
+            }
+            return s.replace(/"/g, '%22').replace(/'/g, '%27');
+        }
+
         // Load favorites products
         function loadFavorites() {
             const favorites = window.Favorites ? window.Favorites.getFavorites() : [];
@@ -254,20 +297,20 @@ try {
                     
                     grid.innerHTML = products.map(product => `
                         <article class="product-card">
-                            <button type="button" class="product-card__wishlist" aria-label="В избранное" data-product-id="${product.id}">
+                            <button type="button" class="product-card__wishlist" aria-label="В избранное" data-product-id="${Number(product.id) || 0}">
                                 <img src="/assets/icons/heart.svg" alt="" class="product-card__wishlist-icon">
                             </button>
-                            <a href="/pages/page-product.php?id=${product.id}" class="product-card__link">
-                                <img src="${product.image}" alt="${product.name}" class="product-card__image" loading="lazy">
+                            <a href="/pages/page-product.php?id=${Number(product.id) || 0}" class="product-card__link">
+                                <img src="${safePath(product.image, '/assets/product_images/default.png')}" alt="${escapeHtml(product.name)}" class="product-card__image" loading="lazy">
                             </a>
                             <h3 class="product-card__name">
-                                <a href="/pages/page-product.php?id=${product.id}">${product.name}</a>
+                                <a href="/pages/page-product.php?id=${Number(product.id) || 0}">${escapeHtml(product.name)}</a>
                             </h3>
                             <div class="product-card__price">
-                                ${product.discount_percent > 0 ? `<span class="product-card__price--old">${product.old_price_formatted}</span>` : ''}
-                                <span class="product-card__price--new">${product.price_formatted}</span>
+                                ${Number(product.discount_percent) > 0 ? `<span class="product-card__price--old">${escapeHtml(product.old_price_formatted)}</span>` : ''}
+                                <span class="product-card__price--new">${escapeHtml(product.price_formatted)}</span>
                             </div>
-                            <button type="button" class="product-card__add-to-cart" data-product-id="${product.id}" data-product-name="${product.name}" data-product-price="${product.price_raw}" data-product-old-price="${product.old_price_raw}">
+                            <button type="button" class="product-card__add-to-cart" data-product-id="${Number(product.id) || 0}" data-product-name="${escapeHtml(product.name)}" data-product-price="${Number(product.price_raw) || 0}" data-product-old-price="${Number(product.old_price_raw) || 0}">
                                 <img src="/assets/icons/cart.svg" alt="" class="product-card__add-to-cart-icon" width="18" height="18">
                                 В корзну
                             </button>
@@ -296,5 +339,3 @@ try {
     </script>
 </body>
 </html>
-
-
