@@ -3,10 +3,12 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/includes/layout.php';
+require_once __DIR__ . '/../includes/product_options.php';
 
 admin_require_auth();
 
 global $pdo;
+product_options_ensure_schema($pdo);
 
 $productId = admin_safe_int($_GET['id'] ?? 0);
 if ($productId <= 0) {
@@ -51,6 +53,7 @@ $form = [
     'category_id' => (string)$product['category_id'],
 ];
 $currentImage = (string)($product['image_path'] ?? '');
+$variantPayload = product_admin_form_payload($productId);
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     admin_validate_csrf_or_fail();
@@ -116,6 +119,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $currentImage = $newImagePath;
             }
 
+            product_save_parameters($pdo, $productId, (array)($_POST['product_parameters'] ?? []));
+            product_save_variants($pdo, $productId, (array)($_POST['product_variants'] ?? []));
+
             $pdo->commit();
             admin_set_flash('success', 'Товар обновлён.');
             admin_redirect('/admin/products.php');
@@ -179,7 +185,22 @@ admin_render_header('Редактирование товара', 'products');
                 <img class="admin-thumb admin-thumb-large" src="<?php echo admin_e($currentImage); ?>" alt="">
             <?php endif; ?>
         </label>
+        <div class="admin-full admin-variants"
+            data-parameter-catalog="<?php echo admin_e(json_encode(array_column((array)$variantPayload['catalog'], 'name', 'code'), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?: '{}'); ?>"
+            data-initial-parameters="<?php echo admin_e(json_encode($variantPayload['parameters'], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?: '[]'); ?>"
+            data-initial-variants="<?php echo admin_e(json_encode($variantPayload['variants'], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?: '[]'); ?>">
+            <div>
+                <h3 class="admin-variants__section-title">Параметры товара</h3>
+                <p class="admin-variants__hint">Комбинации вариантов формируются автоматически при изменении значений и переключении чекбоксов.</p>
+                <div data-parameters></div>
+            </div>
+            <div>
+                <h3 class="admin-variants__section-title">Варианты</h3>
+                <div data-variants></div>
+            </div>
+        </div>
         <button type="submit">Сохранить изменения</button>
     </form>
 </section>
+<script src="/admin/assets/product-variants.js" defer></script>
 <?php admin_render_footer(); ?>

@@ -2,8 +2,10 @@
 require_once __DIR__ . '/../includes/security.php';
 app_start_session();
 require_once __DIR__ . '/../includes/config.php';
+require_once __DIR__ . '/../includes/orders.php';
 
-// Проверка авторзац
+app_ensure_order_schema($pdo);
+
 if (!isset($_SESSION['user_id'])) {
     header('Location: /pages/login.php');
     exit;
@@ -15,88 +17,113 @@ if ((string)($_SESSION['role_name'] ?? '') === 'admin' || isset($_SESSION['admin
 }
 
 $user_id = (int)$_SESSION['user_id'];
-$current_tab = $_GET['tab'] ?? 'profile';
+$current_tab = (string)($_GET['tab'] ?? 'profile');
+$error = '';
+$feedback_error = '';
+$feedback_success = '';
 
-// Получае анные пользователя
 try {
-    $stmt = $pdo->prepare("
-        SELECT u.id, u.name, u.email, u.phone, u.created_at, r.name AS role_name
-        FROM users u
-        INNER JOIN roles r ON r.id = u.role_id
-        WHERE u.id = ?
-    ");
+    $stmt = $pdo->prepare(
+        'SELECT u.id, u.name, u.email, u.phone, u.created_at, r.name AS role_name
+         FROM users u
+         INNER JOIN roles r ON r.id = u.role_id
+         WHERE u.id = ? LIMIT 1'
+    );
     $stmt->execute([$user_id]);
     $user = $stmt->fetch();
-    if ($user && (string)($user['role_name'] ?? '') === 'admin') {
-        $_SESSION['role_name'] = 'admin';
-        $_SESSION['admin_user_id'] = (int)$user['id'];
-        $_SESSION['admin_user_name'] = (string)$user['name'];
-        $_SESSION['admin_user_email'] = (string)$user['email'];
-        header('Location: /admin/index.php');
+    if (!$user) {
+        header('Location: /pages/logout.php');
         exit;
     }
 } catch (PDOException $e) {
-    error_log('Database error: ' . $e->getMessage());
-    $user = null;
+    error_log('Account user fetch error: ' . $e->getMessage());
+    $user = ['name' => '', 'email' => '', 'phone' => '', 'created_at' => date('Y-m-d H:i:s')];
 }
 
-// Обработка обновленя профля
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['update_profile'])) {
     app_validate_csrf_or_fail();
-    $name = trim($_POST['name'] ?? '');
-    $email = trim($_POST['email'] ?? '');
-    $phone = trim($_POST['phone'] ?? '');
-    
-    try {
-        $stmt = $pdo->prepare("UPDATE users SET name = ?, email = ?, phone = ? WHERE id = ?");
-        $stmt->execute([$name, $email, $phone, $user_id]);
-        $_SESSION['user_name'] = $name;
-        $_SESSION['user_email'] = $email;
-        header('Location: /pages/account.php?tab=profile&success=1');
-        exit;
-    } catch (PDOException $e) {
-        $error = 'Ошбка пр обновлен анных';
-        error_log('Update profile error: ' . $e->getMessage());
-    }
-}
+    $name = trim((string)($_POST['name'] ?? ''));
+    $email = trim((string)($_POST['email'] ?? ''));
+    $phone = trim((string)($_POST['phone'] ?? ''));
 
-// Обработка обратной связ
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['send_feedback'])) {
-    app_validate_csrf_or_fail();
-    $subject = trim($_POST['subject'] ?? '');
-    $message = trim($_POST['message'] ?? '');
-    
-    if (empty($subject) || empty($message)) {
-        $feedback_error = 'Заполнте все поля';
+    if ($name === '' || $email === '' || !filter_var($email, FILTER_VALIDATE_EMAIL)) {
+        $error = 'Проверьте имя и email.';
     } else {
         try {
-            $stmt = $pdo->prepare("INSERT INTO feedback (name, email, subject, message) VALUES (?, ?, ?, ?)");
-            $stmt->execute([$user['name'], $user['email'], $subject, $message]);
-            $feedback_success = 'Сообщене отправлено! Мы свяжеся с ва в блжайшее врея.';
+            $stmt = $pdo->prepare('UPDATE users SET name = ?, email = ?, phone = ? WHERE id = ? LIMIT 1');
+            $stmt->execute([$name, $email, $phone !== '' ? $phone : null, $user_id]);
+            $_SESSION['user_name'] = $name;
+            $_SESSION['user_email'] = $email;
+            $_SESSION['user_phone'] = $phone;
+            header('Location: /pages/account.php?tab=profile&success=1');
+            exit;
         } catch (PDOException $e) {
-            $feedback_error = 'Ошбка пр отправке сообщеня';
-            error_log('Feedback error: ' . $e->getMessage());
+            error_log('Account update error: ' . $e->getMessage());
+            $error = 'Не удалось обновить профиль.';
         }
     }
 }
 
-//  Заказы пользователя
-try {
-    $stmt = $pdo->prepare("
-        SELECT o.id, o.total_price, o.created_at, os.name as status_name
-        FROM orders o
-        LEFT JOIN order_statuses os ON o.status_id = os.id
-        WHERE o.user_id = ?
-        ORDER BY o.created_at DESC
-    ");
-    $stmt->execute([$user_id]);
-    $orders = $stmt->fetchAll() ?: [];
-} catch (PDOException $e) {
-    error_log('Database error: ' . $e->getMessage());
-    $orders = [];
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['send_feedback'])) {
+    app_validate_csrf_or_fail();
+    $subject = trim((string)($_POST['subject'] ?? ''));
+    $message = trim((string)($_POST['message'] ?? ''));
+
+    if ($subject === '' || $message === '') {
+        $feedback_error = 'Заполните тему и сообщение.';
+    } else {
+        try {
+            $stmt = $pdo->prepare('INSERT INTO feedback (name, email, subject, message) VALUES (?, ?, ?, ?)');
+            $stmt->execute([(string)$user['name'], (string)$user['email'], $subject, $message]);
+            $feedback_success = 'Сообщение отправлено.';
+        } catch (PDOException $e) {
+            error_log('Feedback insert error: ' . $e->getMessage());
+            $feedback_error = 'Не удалось отправить сообщение.';
+        }
+    }
 }
 
-// Забранные товары (из localStorage через JS)
+$orders = [];
+$order_items = [];
+try {
+    $stmt = $pdo->prepare(
+        'SELECT o.id, o.total_price, o.delivery_price, o.discount_total, o.address, o.created_at,
+                o.payment_method, o.payment_status, os.name AS status_name, dm.name AS delivery_name
+         FROM orders o
+         LEFT JOIN order_statuses os ON os.id = o.status_id
+         LEFT JOIN delivery_methods dm ON dm.id = o.delivery_method_id
+         WHERE o.user_id = ?
+         ORDER BY o.created_at DESC'
+    );
+    $stmt->execute([$user_id]);
+    $orders = $stmt->fetchAll() ?: [];
+
+    if ($orders !== []) {
+        $order_ids = array_map(static function (array $order): int {
+            return (int)$order['id'];
+        }, $orders);
+        $placeholders = implode(',', array_fill(0, count($order_ids), '?'));
+        $stmt = $pdo->prepare(
+            "SELECT oi.order_id, oi.product_id, oi.variant_id, oi.quantity, oi.price, oi.base_price,
+                    oi.discount_percent, oi.title, oi.variant_label, oi.attributes_json,
+                    p.name AS product_name
+             FROM order_items oi
+             LEFT JOIN products p ON p.id = oi.product_id
+             WHERE oi.order_id IN ($placeholders)
+             ORDER BY oi.order_id DESC, oi.id ASC"
+        );
+        $stmt->execute($order_ids);
+        foreach ($stmt->fetchAll() ?: [] as $item) {
+            $order_id = (int)$item['order_id'];
+            if (!isset($order_items[$order_id])) {
+                $order_items[$order_id] = [];
+            }
+            $order_items[$order_id][] = $item;
+        }
+    }
+} catch (PDOException $e) {
+    error_log('Orders fetch error: ' . $e->getMessage());
+}
 ?>
 <!DOCTYPE html>
 <html lang="ru">
@@ -113,125 +140,122 @@ try {
     <link rel="stylesheet" href="/styles/product-card.css">
     <link rel="stylesheet" href="/styles/account.css">
     <title>Личный кабинет — Канцария</title>
-    
 </head>
 <body>
     <?php include __DIR__ . '/../includes/header.php'; ?>
 
-    <main class="main">
+    <main class="main" data-account-tab="<?php echo htmlspecialchars($current_tab, ENT_QUOTES, 'UTF-8'); ?>">
         <div class="account-page">
             <nav class="account-nav">
-                <h2 class="account-nav__title">Настройк профля</h2>
+                <h2 class="account-nav__title">Личный кабинет</h2>
                 <ul class="account-nav__list">
-                    <li class="account-nav__item">
-                        <a href="/pages/account.php?tab=profile" class="account-nav__link <?php echo $current_tab === 'profile' ? 'account-nav__link--active' : ''; ?>">
-                            <span>Профль</span>
-                        </a>
-                    </li>
-                    <li class="account-nav__item">
-                        <a href="/pages/account.php?tab=orders" class="account-nav__link <?php echo $current_tab === 'orders' ? 'account-nav__link--active' : ''; ?>">
-                            <span>Заказы</span>
-                        </a>
-                    </li>
-                    <li class="account-nav__item">
-                        <a href="/pages/account.php?tab=favorites" class="account-nav__link <?php echo $current_tab === 'favorites' ? 'account-nav__link--active' : ''; ?>">
-                            <span>Избранное</span>
-                            <span class="account-nav__badge" id="favorites-count">0</span>
-                        </a>
-                    </li>
-                    <li class="account-nav__item">
-                        <a href="/pages/account.php?tab=feedback" class="account-nav__link <?php echo $current_tab === 'feedback' ? 'account-nav__link--active' : ''; ?>">
-                            <span>Обратная связь</span>
-                        </a>
-                    </li>
+                    <li class="account-nav__item"><a href="/pages/account.php?tab=profile" class="account-nav__link <?php echo $current_tab === 'profile' ? 'account-nav__link--active' : ''; ?>">Профиль</a></li>
+                    <li class="account-nav__item"><a href="/pages/account.php?tab=orders" class="account-nav__link <?php echo $current_tab === 'orders' ? 'account-nav__link--active' : ''; ?>">Заказы</a></li>
+                    <li class="account-nav__item"><a href="/pages/account.php?tab=favorites" class="account-nav__link <?php echo $current_tab === 'favorites' ? 'account-nav__link--active' : ''; ?>">Избранное <span class="account-nav__badge" id="favorites-count">0</span></a></li>
+                    <li class="account-nav__item"><a href="/pages/account.php?tab=feedback" class="account-nav__link <?php echo $current_tab === 'feedback' ? 'account-nav__link--active' : ''; ?>">Обратная связь</a></li>
                 </ul>
             </nav>
 
             <div class="account-content">
-                <!-- Профиль -->
-                <div class="account-section <?php echo $current_tab === 'profile' ? 'account-section--active' : ''; ?>" id="profile-section">
-                    <h2 class="account-content__title">Редактирование профиля</h2>
+                <div class="account-section <?php echo $current_tab === 'profile' ? 'account-section--active' : ''; ?>">
+                    <h2 class="account-content__title">Профиль</h2>
                     <?php if (isset($_GET['success'])): ?>
-                        <div class="message message--success">Данные успешно обновлены!</div>
+                        <div class="message message--success">Данные обновлены.</div>
                     <?php endif; ?>
-                    <?php if (isset($error)): ?>
+                    <?php if ($error !== ''): ?>
                         <div class="message message--error"><?php echo htmlspecialchars($error); ?></div>
                     <?php endif; ?>
                     <form method="post" class="profile-form">
                         <?php echo app_csrf_input(); ?>
                         <div class="profile-form__field">
                             <label class="profile-form__label">Имя</label>
-                            <input type="text" name="name" class="profile-form__input" value="<?php echo htmlspecialchars($user['name'] ?? ''); ?>" required>
+                            <input type="text" name="name" class="profile-form__input" value="<?php echo htmlspecialchars((string)$user['name']); ?>" required>
                         </div>
                         <div class="profile-form__field">
                             <label class="profile-form__label">Email</label>
-                            <input type="email" name="email" class="profile-form__input" value="<?php echo htmlspecialchars($user['email'] ?? ''); ?>" required>
+                            <input type="email" name="email" class="profile-form__input" value="<?php echo htmlspecialchars((string)$user['email']); ?>" required>
                         </div>
                         <div class="profile-form__field">
                             <label class="profile-form__label">Телефон</label>
-                            <input type="tel" name="phone" class="profile-form__input" value="<?php echo htmlspecialchars($user['phone'] ?? ''); ?>">
+                            <input type="tel" name="phone" class="profile-form__input" value="<?php echo htmlspecialchars((string)($user['phone'] ?? '')); ?>">
                         </div>
                         <div class="profile-form__field">
                             <label class="profile-form__label">Дата регистрации</label>
-                            <input type="text" class="profile-form__input" value="<?php echo $user ? date('d.m.Y', strtotime($user['created_at'])) : ''; ?>" disabled>
+                            <input type="text" class="profile-form__input" value="<?php echo htmlspecialchars(date('d.m.Y', strtotime((string)$user['created_at']))); ?>" disabled>
                         </div>
                         <button type="submit" name="update_profile" class="profile-form__submit">Сохранить изменения</button>
-                        <div style="margin-top: 24px; padding-top: 24px; border-top: 1px solid #e5e5e5;">
-                            <button type="submit" form="logout-form" style="color: #c33; text-decoration: none; font-weight: 600; background: none; border: none; padding: 0; cursor: pointer;">Выйти из аккаунта</button>
-                        </div>
                     </form>
-                    <form method="post" id="logout-form" action="/pages/logout.php">
+                    <form method="post" id="logout-form" action="/pages/logout.php" style="margin-top:24px;">
                         <?php echo app_csrf_input(); ?>
+                        <button type="submit" style="color:#c33;text-decoration:none;font-weight:600;background:none;border:none;padding:0;cursor:pointer;">Выйти из аккаунта</button>
                     </form>
                 </div>
 
-                <!-- Заказы -->
-                <div class="account-section <?php echo $current_tab === 'orders' ? 'account-section--active' : ''; ?>" id="orders-section">
+                <div class="account-section <?php echo $current_tab === 'orders' ? 'account-section--active' : ''; ?>">
                     <h2 class="account-content__title">История заказов</h2>
-                    <?php if (empty($orders)): ?>
-                        <div class="empty-state">
-                            <div class="empty-state__icon">📦</div>
-                            <p>У вас пока нет заказов</p>
-                        </div>
+                    <?php if ($orders === []): ?>
+                        <div class="empty-state"><p>У вас пока нет заказов.</p></div>
                     <?php else: ?>
-                        <ul class="orders-list">
+                        <div class="orders-list">
                             <?php foreach ($orders as $order): ?>
-                                <li class="orders-item">
+                                <article class="orders-item">
                                     <div class="orders-item__header">
-                                        <span class="orders-item__id">Заказ №<?php echo $order['id']; ?></span>
-                                        <span class="orders-item__status orders-item__status--<?php echo strtolower(str_replace(' ', '-', $order['status_name'])); ?>">
-                                            <?php echo htmlspecialchars($order['status_name']); ?>
+                                        <span class="orders-item__id">Заказ №<?php echo (int)$order['id']; ?></span>
+                                        <span class="orders-item__status orders-item__status--<?php echo htmlspecialchars(strtolower(str_replace(' ', '-', (string)$order['status_name']))); ?>">
+                                            <?php echo htmlspecialchars((string)$order['status_name']); ?>
                                         </span>
                                     </div>
-                                    <div class="orders-item__date">
-                                        <?php echo date('d.m.Y H:i', strtotime($order['created_at'])); ?>
-                                    </div>
-                                    <div class="orders-item__total">
-                                        <?php echo format_price($order['total_price']); ?>
-                                    </div>
-                                </li>
+                                    <div class="orders-item__date"><?php echo htmlspecialchars(date('d.m.Y H:i', strtotime((string)$order['created_at']))); ?></div>
+                                    <div class="orders-item__total">Итого: <?php echo format_price((float)$order['total_price']); ?></div>
+                                    <div class="orders-item__date">Доставка: <?php echo htmlspecialchars((string)($order['delivery_name'] ?? 'Не указана')); ?>, <?php echo format_price((float)($order['delivery_price'] ?? 0)); ?></div>
+                                    <div class="orders-item__date">Оплата: <?php echo htmlspecialchars((string)$order['payment_method']); ?> / <?php echo htmlspecialchars((string)$order['payment_status']); ?></div>
+                                    <?php if (!empty($order['address'])): ?>
+                                        <div class="orders-item__date">Адрес: <?php echo htmlspecialchars((string)$order['address']); ?></div>
+                                    <?php endif; ?>
+                                    <?php if (!empty($order_items[(int)$order['id']])): ?>
+                                        <div style="margin-top:16px;">
+                                            <?php foreach ($order_items[(int)$order['id']] as $item): ?>
+                                                <?php $attributes = json_decode((string)($item['attributes_json'] ?? ''), true); ?>
+                                                <div style="padding:10px 0;border-top:1px solid #eee;">
+                                                    <div><?php echo htmlspecialchars((string)($item['title'] ?: $item['product_name'] ?: 'Товар')); ?></div>
+                                                    <?php if (!empty($item['variant_label'])): ?>
+                                                        <div style="color:#666;font-size:14px;"><?php echo htmlspecialchars((string)$item['variant_label']); ?></div>
+                                                    <?php endif; ?>
+                                                    <?php if (is_array($attributes) && $attributes !== []): ?>
+                                                        <div style="color:#666;font-size:14px;">
+                                                            <?php
+                                                            $parts = [];
+                                                            foreach ($attributes as $key => $value) {
+                                                                $parts[] = htmlspecialchars((string)$key) . ': ' . htmlspecialchars((string)$value);
+                                                            }
+                                                            echo implode(' · ', $parts);
+                                                            ?>
+                                                        </div>
+                                                    <?php endif; ?>
+                                                    <div style="color:#666;font-size:14px;">Количество: <?php echo (int)$item['quantity']; ?> · Цена: <?php echo format_price((float)$item['price']); ?></div>
+                                                </div>
+                                            <?php endforeach; ?>
+                                        </div>
+                                    <?php endif; ?>
+                                </article>
                             <?php endforeach; ?>
-                        </ul>
+                        </div>
                     <?php endif; ?>
                 </div>
 
-                <!-- избранное -->
-                <div class="account-section <?php echo $current_tab === 'favorites' ? 'account-section--active' : ''; ?>" id="favorites-section">
+                <div class="account-section <?php echo $current_tab === 'favorites' ? 'account-section--active' : ''; ?>">
                     <h2 class="account-content__title">Избранное</h2>
                     <div class="favorites-grid" id="favorites-grid">
-                        <div class="empty-state">
-                            <p>Список избранного пуст</p>
-                        </div>
+                        <div class="empty-state"><p>Список избранного пуст.</p></div>
                     </div>
                 </div>
 
-                <!-- Обратная связь -->
-                <div class="account-section <?php echo $current_tab === 'feedback' ? 'account-section--active' : ''; ?>" id="feedback-section">
+                <div class="account-section <?php echo $current_tab === 'feedback' ? 'account-section--active' : ''; ?>">
                     <h2 class="account-content__title">Обратная связь</h2>
-                    <?php if (isset($feedback_error)): ?>
+                    <?php if ($feedback_error !== ''): ?>
                         <div class="message message--error"><?php echo htmlspecialchars($feedback_error); ?></div>
                     <?php endif; ?>
-                    <?php if (isset($feedback_success)): ?>
+                    <?php if ($feedback_success !== ''): ?>
                         <div class="message message--success"><?php echo htmlspecialchars($feedback_success); ?></div>
                     <?php endif; ?>
                     <form method="post" class="feedback-form">
@@ -252,90 +276,6 @@ try {
     </main>
 
     <?php include __DIR__ . '/../includes/footer.php'; ?>
-
-    <script>
-        function escapeHtml(value) {
-            return String(value)
-                .replace(/&/g, '&amp;')
-                .replace(/</g, '&lt;')
-                .replace(/>/g, '&gt;')
-                .replace(/"/g, '&quot;')
-                .replace(/'/g, '&#039;');
-        }
-
-        function safePath(value, fallback = '') {
-            const s = String(value || '');
-            if (!s.startsWith('/')) {
-                return fallback;
-            }
-            return s.replace(/"/g, '%22').replace(/'/g, '%27');
-        }
-
-        // Load favorites products
-        function loadFavorites() {
-            const favorites = window.Favorites ? window.Favorites.getFavorites() : [];
-            const grid = document.getElementById('favorites-grid');
-            const countBadge = document.getElementById('favorites-count');
-            
-            if (countBadge) {
-                countBadge.textContent = favorites.length;
-            }
-            
-            if (favorites.length === 0) {
-                grid.innerHTML = '<div class="empty-state"><div class="empty-state__icon">❤</div><p>Спсок збранного пуст</p></div>';
-                return;
-            }
-            
-            // Fetch products data
-            fetch('/api/products.php?ids=' + favorites.join(','))
-                .then(response => response.json())
-                .then(products => {
-                    if (products.length === 0) {
-                        grid.innerHTML = '<div class="empty-state"><div class="empty-state__icon">❤</div><p>Список избранного пуст</p></div>';
-                        return;
-                    }
-                    
-                    grid.innerHTML = products.map(product => `
-                        <article class="product-card">
-                            <button type="button" class="product-card__wishlist" aria-label="В избранное" data-product-id="${Number(product.id) || 0}">
-                                <img src="/assets/icons/heart.svg" alt="" class="product-card__wishlist-icon">
-                            </button>
-                            <a href="/pages/page-product.php?id=${Number(product.id) || 0}" class="product-card__link">
-                                <img src="${safePath(product.image, '/assets/product_images/default.png')}" alt="${escapeHtml(product.name)}" class="product-card__image" loading="lazy">
-                            </a>
-                            <h3 class="product-card__name">
-                                <a href="/pages/page-product.php?id=${Number(product.id) || 0}">${escapeHtml(product.name)}</a>
-                            </h3>
-                            <div class="product-card__price">
-                                ${Number(product.discount_percent) > 0 ? `<span class="product-card__price--old">${escapeHtml(product.old_price_formatted)}</span>` : ''}
-                                <span class="product-card__price--new">${escapeHtml(product.price_formatted)}</span>
-                            </div>
-                            <button type="button" class="product-card__add-to-cart" data-product-id="${Number(product.id) || 0}" data-product-name="${escapeHtml(product.name)}" data-product-price="${Number(product.price_raw) || 0}" data-product-old-price="${Number(product.old_price_raw) || 0}">
-                                <img src="/assets/icons/cart.svg" alt="" class="product-card__add-to-cart-icon" width="18" height="18">
-                                В корзну
-                            </button>
-                        </article>
-                    `).join('');
-                    
-                    // Update wishlist buttons
-                    if (window.Favorites) {
-                        window.Favorites.updateBadge();
-                    }
-                })
-                .catch(error => {
-                    console.error('Error loading favorites:', error);
-                    grid.innerHTML = '<div class="empty-state"><p>Ошбка пр загрузке збранного</p></div>';
-                });
-        }
-        
-        // Load favorites when on favorites tab
-        <?php if ($current_tab === 'favorites'): ?>
-        if (document.readyState === 'loading') {
-            document.addEventListener('DOMContentLoaded', loadFavorites);
-        } else {
-            loadFavorites();
-        }
-        <?php endif; ?>
-    </script>
+    <script src="/scripts/account-page.js"></script>
 </body>
 </html>

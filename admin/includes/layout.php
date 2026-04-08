@@ -40,7 +40,7 @@ function admin_render_header(string $title, string $active = ''): void
 <body class="admin-body">
     <div class="admin-shell">
         <aside class="admin-sidebar">
-            <a class="admin-brand" href="/admin/index.php">PENPOINT Admin</a>
+            <a class="admin-brand" href="/admin/index.php">Канцария Admin</a>
             <nav class="admin-nav">
                 <?php foreach ($nav as $key => $item): ?>
                     <a class="admin-nav__item <?php echo $active === $key ? 'is-active' : ''; ?>" href="<?php echo admin_e($item['href']); ?>">

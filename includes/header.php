@@ -26,7 +26,13 @@ $is_admin_page = (strpos($current_uri, '/admin/') !== false);
         <span class="header__logo-text">Канцария</span>
     </a>
 
-    <nav class="header__nav">
+    <button type="button" class="header__burger" id="header-burger" aria-label="Открыть меню" aria-expanded="false">
+        <span></span>
+        <span></span>
+        <span></span>
+    </button>
+
+    <nav class="header__nav" id="header-nav">
         <ul class="header__nav-list">
             <li class="header__nav-item"><a href="<?php echo $base; ?>/index.php" class="header__link <?php echo $is_home ? 'active' : ''; ?>">Главная</a></li>
             <li class="header__nav-item"><a href="<?php echo $base; ?>/pages/catalog.php" class="header__link <?php echo $is_catalog ? 'active' : ''; ?>">Каталог</a></li>
@@ -64,4 +70,20 @@ $is_admin_page = (strpos($current_uri, '/admin/') !== false);
     </div>
 
     <script>window.IS_GUEST_USER = <?php echo $is_logged_in ? 'false' : 'true'; ?>;</script>
+    <script>
+    (function () {
+        const burger = document.getElementById('header-burger');
+        const nav = document.getElementById('header-nav');
+        if (!burger || !nav) {
+            return;
+        }
+
+        burger.addEventListener('click', function () {
+            const expanded = burger.getAttribute('aria-expanded') === 'true';
+            burger.setAttribute('aria-expanded', expanded ? 'false' : 'true');
+            nav.classList.toggle('header__nav--open', !expanded);
+            document.body.classList.toggle('header-menu-open', !expanded);
+        });
+    })();
+    </script>
 </header>

@@ -208,6 +208,17 @@
     margin-top: 2px;
 }
 
+.contacts-form__policy-link {
+    color: #D55204;
+    font-weight: 700;
+    text-decoration: none;
+}
+
+.contacts-form__policy-link:hover {
+    color: #b84503;
+    text-decoration: underline;
+}
+
 .contacts-form__submit {
     min-width: 126px;
     height: 44px;

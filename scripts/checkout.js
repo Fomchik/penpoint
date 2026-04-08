@@ -156,18 +156,24 @@
       totalOld = 0;
     cart.forEach((item) => {
       const qty = Math.max(1, parseInt(item.quantity, 10) || 1);
-      const price = parseFloat(item.price) || 0;
-      const old = parseFloat(item.old_price || 0);
+      const price = parseFloat(item.unit_price || item.price) || 0;
+      const old = parseFloat(item.base_price || item.old_price || 0);
       totalQty += qty;
       totalPrice += price * qty;
       totalOld += (old > price ? old : price) * qty;
     });
+    const deliverySelected = document.querySelector(
+      'input[name="delivery_type"]:checked',
+    );
+    const deliveryPrice = deliverySelected && deliverySelected.value === "delivery" ? 300 : 0;
     const itemsEl = document.getElementById("checkout-total-items");
     const priceEl = document.getElementById("checkout-total-price");
     const oldEl = document.getElementById("checkout-total-old");
+    const deliveryEl = document.getElementById("checkout-delivery-price");
     if (itemsEl)
       itemsEl.textContent = totalQty + " " + pluralizeProduct(totalQty);
-    if (priceEl) priceEl.textContent = formatPrice(totalPrice);
+    if (deliveryEl) deliveryEl.textContent = formatPrice(deliveryPrice);
+    if (priceEl) priceEl.textContent = formatPrice(totalPrice + deliveryPrice);
     if (oldEl)
       oldEl.textContent = totalOld > totalPrice ? formatPrice(totalOld) : "";
   }
@@ -735,6 +741,10 @@
     setupDeliveryModal();
     initYandexMap();
     initDeliverySuggest();
+    document.querySelectorAll('input[name="delivery_type"]').forEach(function (radio) {
+      radio.addEventListener("change", loadSummary);
+    });
+    window.addEventListener("penpoint:cart-updated", loadSummary);
   });
 })();
 

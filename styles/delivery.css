@@ -1,0 +1,39 @@
+.delivery-page {
+    max-width: 1000px;
+    margin: 24px auto 64px;
+    background: #fff;
+    border: 1px solid #e7e7e7;
+    border-radius: 12px;
+    padding: 24px;
+}
+
+.delivery-page h1 {
+    margin: 0 0 18px;
+}
+
+.delivery-page h2 {
+    margin: 24px 0 10px;
+    font-size: 1.25rem;
+}
+
+.delivery-page p {
+    margin: 0 0 12px;
+    line-height: 1.6;
+}
+
+.delivery-page ul {
+    margin: 0 0 12px 20px;
+    line-height: 1.6;
+}
+
+.delivery-page__updated {
+    color: #6b7280;
+    font-size: 0.95rem;
+}
+
+@media (max-width: 768px) {
+    .delivery-page {
+        margin: 16px;
+        padding: 16px;
+    }
+}

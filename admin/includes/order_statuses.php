@@ -8,6 +8,7 @@ function admin_order_status_map(): array
         'pending' => ['id' => 1, 'label' => 'Новый'],
         'processing' => ['id' => 2, 'label' => 'В обработке'],
         'shipped' => ['id' => 3, 'label' => 'Отправлен'],
+        'in_transit' => ['id' => 6, 'label' => 'В пути'],
         'completed' => ['id' => 4, 'label' => 'Доставлен'],
         'cancelled' => ['id' => 5, 'label' => 'Отменён'],
     ];
@@ -23,4 +24,3 @@ function admin_order_status_slug_by_id(int $id): string
 
     return 'pending';
 }
-

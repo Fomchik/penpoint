@@ -37,14 +37,33 @@ function app_csrf_input(): string
     return '<input type="hidden" name="csrf_token" value="' . htmlspecialchars(app_csrf_token(), ENT_QUOTES, 'UTF-8') . '">';
 }
 
+function app_request_csrf_token(): string
+{
+    $token = (string)($_POST['csrf_token'] ?? '');
+    if ($token !== '') {
+        return $token;
+    }
+
+    $headers = [
+        'HTTP_X_CSRF_TOKEN',
+        'HTTP_X_CSRF',
+    ];
+    foreach ($headers as $header) {
+        if (!empty($_SERVER[$header])) {
+            return (string)$_SERVER[$header];
+        }
+    }
+
+    return '';
+}
+
 function app_validate_csrf_or_fail(): void
 {
     $sessionToken = (string)($_SESSION['app_csrf_token'] ?? '');
-    $requestToken = (string)($_POST['csrf_token'] ?? '');
+    $requestToken = app_request_csrf_token();
 
     if ($sessionToken === '' || $requestToken === '' || !hash_equals($sessionToken, $requestToken)) {
         http_response_code(403);
         exit('CSRF validation failed.');
     }
 }
-

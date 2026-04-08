@@ -11,7 +11,7 @@ ini_set('display_errors', '0');
 error_reporting(E_ALL);
 
 const ADMIN_BASE_PATH = '/admin';
-const ADMIN_LOGIN_PATH = '/admin/login.php';
+const ADMIN_LOGIN_PATH = '/pages/login.php';
 const ADMIN_DASHBOARD_PATH = '/admin/index.php';
 
 function admin_e($value): string

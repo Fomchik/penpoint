@@ -241,7 +241,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                             <div class="contacts-form__footer">
                                 <div class="contacts-form__notice">
                                     <img src="<?php echo BASE_PATH; ?>/assets/icons/notification.svg" alt="" width="16" height="16" aria-hidden="true">
-                                    <span>Нажимая кнопку, вы соглашаетесь с политикой обработки персональных данных.</span>
+                                    <span>Нажимая кнопку, вы соглашаетесь с <a href="/privacy.php" class="contacts-form__policy-link">политикой обработки персональных данных</a>.</span>
                                 </div>
                                 <button type="submit" class="contacts-form__submit">Отправить</button>
                             </div>

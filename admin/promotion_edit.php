@@ -6,8 +6,7 @@ require_once __DIR__ . '/includes/layout.php';
 require_once __DIR__ . '/includes/promotions_tools.php';
 
 admin_require_auth();
-
-global $pdo;
+admin_promotion_ensure_schema($pdo);
 
 $promotionId = admin_safe_int($_GET['id'] ?? 0);
 if ($promotionId <= 0) {
@@ -15,49 +14,33 @@ if ($promotionId <= 0) {
     admin_redirect('/admin/promotions.php');
 }
 
-$errors = [];
-$scopeLabels = admin_promotion_scope_labels();
-$categories = [];
-$products = [];
-
-try {
-    $categories = admin_promotion_fetch_categories($pdo);
-    $products = admin_promotion_fetch_products($pdo);
-} catch (Throwable $e) {
-    admin_log_error('promotion_edit_lists', $e);
-    $errors[] = 'Не удалось загрузить справочники товаров и категорий.';
-}
-
-try {
-    $promotion = admin_promotion_fetch_one($pdo, $promotionId);
-    if (!$promotion) {
-        admin_set_flash('error', 'Акция не найдена.');
-        admin_redirect('/admin/promotions.php');
-    }
-} catch (Throwable $e) {
-    admin_log_error('promotion_edit_fetch', $e);
-    admin_set_flash('error', 'Не удалось загрузить акцию.');
+$promotion = admin_promotion_fetch_one($pdo, $promotionId);
+if (!$promotion) {
+    admin_set_flash('error', 'Акция не найдена.');
     admin_redirect('/admin/promotions.php');
 }
+
+$errors = [];
+$scopeLabels = admin_promotion_scope_labels();
+$typeLabels = admin_promotion_type_labels();
+$categories = admin_promotion_fetch_categories($pdo);
+$products = admin_promotion_fetch_products($pdo);
 
 $form = [
     'title' => (string)$promotion['title'],
     'short_text' => (string)$promotion['short_text'],
     'discount_percent' => (string)$promotion['discount_percent'],
     'apply_scope' => (string)$promotion['apply_scope'],
+    'promotion_type' => (string)($promotion['promotion_type'] ?: 'regular'),
     'date_start' => (string)$promotion['date_start'],
     'date_end' => (string)($promotion['date_end'] ?? ''),
 ];
-$currentImage = (string)($promotion['image_path'] ?? '');
 
-$selectedCategories = [];
-$selectedProducts = [];
-try {
-    $selectedCategories = admin_promotion_fetch_links($pdo, $promotionId, 'categories');
-    $selectedProducts = admin_promotion_fetch_links($pdo, $promotionId, 'products');
-} catch (Throwable $e) {
-    admin_log_error('promotion_edit_links_fetch', $e);
-}
+$selectedCategories = admin_promotion_fetch_links($pdo, $promotionId, 'categories');
+$selectedProducts = admin_promotion_fetch_links($pdo, $promotionId, 'products');
+$currentImage = (string)($promotion['image_path'] ?? '');
+$currentImageMain = (string)($promotion['image_main'] ?? '');
+$currentImageList = (string)($promotion['image_list'] ?? '');
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     admin_validate_csrf_or_fail();
@@ -66,75 +49,77 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $form['short_text'] = trim((string)($_POST['short_text'] ?? ''));
     $form['discount_percent'] = trim((string)($_POST['discount_percent'] ?? ''));
     $form['apply_scope'] = (string)($_POST['apply_scope'] ?? 'categories');
+    $form['promotion_type'] = (string)($_POST['promotion_type'] ?? 'regular');
     $form['date_start'] = trim((string)($_POST['date_start'] ?? ''));
     $form['date_end'] = trim((string)($_POST['date_end'] ?? ''));
-
     $selectedCategories = admin_promotion_parse_ids($_POST['category_ids'] ?? []);
     $selectedProducts = admin_promotion_parse_ids($_POST['product_ids'] ?? []);
 
-    $discountPercent = admin_safe_int($form['discount_percent'], 0);
+    if ($form['title'] === '') $errors[] = 'Укажите название акции.';
+    if ($form['short_text'] === '') $errors[] = 'Укажите описание акции.';
+    if (!isset($scopeLabels[$form['apply_scope']])) $errors[] = 'Некорректная область применения.';
+    if (!isset($typeLabels[$form['promotion_type']])) $errors[] = 'Некорректный тип акции.';
 
-    if ($form['title'] === '') {
-        $errors[] = 'Название акции обязательно.';
-    }
-    if ($form['short_text'] === '') {
-        $errors[] = 'Описание акции обязательно.';
-    }
-    if (!isset($scopeLabels[$form['apply_scope']])) {
-        $errors[] = 'Выберите корректную область применения.';
-    }
-    if ($discountPercent < 1 || $discountPercent > 90) {
-        $errors[] = 'Размер скидки должен быть от 1 до 90.';
-    }
-    if ($form['date_start'] === '') {
-        $errors[] = 'Укажите дату начала акции.';
-    }
-    if ($form['apply_scope'] === 'categories' && !$selectedCategories) {
-        $errors[] = 'Выберите хотя бы одну категорию.';
-    }
-    if ($form['apply_scope'] === 'products' && !$selectedProducts) {
-        $errors[] = 'Выберите хотя бы один товар.';
+    $discountPercent = (int)$form['discount_percent'];
+    if ($discountPercent < 1 || $discountPercent > 90) $errors[] = 'Скидка должна быть от 1 до 90.';
+    if ($form['date_start'] === '') $errors[] = 'Укажите дату начала.';
+    if ($form['apply_scope'] === 'categories' && $selectedCategories === []) $errors[] = 'Выберите категории.';
+    if ($form['apply_scope'] === 'products' && $selectedProducts === []) $errors[] = 'Выберите товары.';
+
+    $newImage = $currentImage;
+    $newImageMain = $currentImageMain;
+    $newImageList = $currentImageList;
+
+    if ($errors === []) {
+        try {
+            if ($form['promotion_type'] === 'seasonal') {
+                $uploadedMain = admin_handle_image_upload($_FILES['image_main'] ?? []);
+                $uploadedList = admin_handle_image_upload($_FILES['image_list'] ?? []);
+                if ($uploadedMain !== null) $newImageMain = $uploadedMain;
+                if ($uploadedList !== null) $newImageList = $uploadedList;
+                if ($newImageMain === '' || $newImageList === '') {
+                    throw new RuntimeException('Для seasonal акции нужны оба изображения.');
+                }
+                $newImage = null;
+            } else {
+                $uploadedImage = admin_handle_image_upload($_FILES['image'] ?? []);
+                if ($uploadedImage !== null) $newImage = $uploadedImage;
+                if ($newImage === '') {
+                    throw new RuntimeException('Для regular акции нужно изображение.');
+                }
+                $newImageMain = null;
+                $newImageList = null;
+            }
+        } catch (Throwable $e) {
+            $errors[] = $e->getMessage();
+        }
     }
 
-    $newImagePath = null;
-    try {
-        $newImagePath = admin_handle_image_upload($_FILES['image'] ?? []);
-    } catch (Throwable $e) {
-        $errors[] = $e->getMessage();
-    }
-
-    if (!$errors) {
+    if ($errors === []) {
         try {
             $pdo->beginTransaction();
-
-            $stmtDeleteProducts = $pdo->prepare('DELETE FROM promotion_products WHERE promotion_id = ?');
-            $stmtDeleteCategories = $pdo->prepare('DELETE FROM promotion_categories WHERE promotion_id = ?');
-            $stmtDeleteProducts->execute([$promotionId]);
-            $stmtDeleteCategories->execute([$promotionId]);
-
             $stmt = $pdo->prepare(
                 'UPDATE promotions
-                 SET title = ?, short_text = ?, image_path = ?, date_start = ?, date_end = ?, discount_percent = ?, apply_scope = ?
+                 SET title = ?, short_text = ?, image_path = ?, image_main = ?, image_list = ?, promotion_type = ?,
+                     date_start = ?, date_end = ?, discount_percent = ?, apply_scope = ?
                  WHERE id = ? LIMIT 1'
             );
             $stmt->execute([
                 $form['title'],
                 $form['short_text'],
-                $newImagePath ?? $currentImage,
+                $newImage,
+                $newImageMain,
+                $newImageList,
+                $form['promotion_type'],
                 $form['date_start'],
                 $form['date_end'] !== '' ? $form['date_end'] : null,
                 $discountPercent,
                 $form['apply_scope'],
                 $promotionId,
             ]);
-
-            if ($form['apply_scope'] === 'products') {
-                admin_promotion_sync_links($pdo, $promotionId, 'products', $selectedProducts);
-            } else {
-                admin_promotion_sync_links($pdo, $promotionId, 'categories', $selectedCategories);
-            }
-
+            admin_promotion_sync_links($pdo, $promotionId, $form['apply_scope'], $form['apply_scope'] === 'products' ? $selectedProducts : $selectedCategories);
             $pdo->commit();
+
             admin_set_flash('success', 'Акция обновлена.');
             admin_redirect('/admin/promotions.php');
         } catch (Throwable $e) {
@@ -161,89 +146,109 @@ admin_render_header('Редактирование акции', 'promotions');
 
     <form method="post" enctype="multipart/form-data" class="admin-form admin-form-grid">
         <?php echo admin_csrf_input(); ?>
-        <label class="admin-full">
-            Название акции
+        <label class="admin-full">Название акции
             <input type="text" name="title" value="<?php echo admin_e($form['title']); ?>" required>
         </label>
-        <label class="admin-full">
-            Описание акции
+        <label class="admin-full">Описание акции
             <textarea name="short_text" rows="4" required><?php echo admin_e($form['short_text']); ?></textarea>
         </label>
-        <label>
-            Размер скидки (%)
+        <label>Размер скидки (%)
             <input type="number" name="discount_percent" value="<?php echo admin_e($form['discount_percent']); ?>" min="1" max="90" required>
         </label>
-        <label>
-            Область применения
-            <select name="apply_scope" id="promotion-scope" required>
-                <?php foreach ($scopeLabels as $scopeKey => $scopeName): ?>
-                    <option value="<?php echo admin_e($scopeKey); ?>" <?php echo $form['apply_scope'] === $scopeKey ? 'selected' : ''; ?>>
-                        <?php echo admin_e($scopeName); ?>
-                    </option>
+        <label>Тип акции
+            <select name="promotion_type" id="promotion-type">
+                <?php foreach ($typeLabels as $typeKey => $typeLabel): ?>
+                    <option value="<?php echo admin_e($typeKey); ?>" <?php echo $form['promotion_type'] === $typeKey ? 'selected' : ''; ?>><?php echo admin_e($typeLabel); ?></option>
                 <?php endforeach; ?>
             </select>
         </label>
-        <label>
-            Дата начала
+        <label>Область применения
+            <select name="apply_scope" id="promotion-scope">
+                <?php foreach ($scopeLabels as $scopeKey => $scopeLabel): ?>
+                    <option value="<?php echo admin_e($scopeKey); ?>" <?php echo $form['apply_scope'] === $scopeKey ? 'selected' : ''; ?>><?php echo admin_e($scopeLabel); ?></option>
+                <?php endforeach; ?>
+            </select>
+        </label>
+        <label>Дата начала
             <input type="date" name="date_start" value="<?php echo admin_e($form['date_start']); ?>" required>
         </label>
-        <label>
-            Дата окончания (необязательно)
+        <label>Дата окончания
             <input type="date" name="date_end" value="<?php echo admin_e($form['date_end']); ?>">
         </label>
-        <label class="admin-full">
-            Новое изображение акции (JPG, PNG, WEBP)
+
+        <label class="admin-full" id="regular-image-field">Изображение regular акции
             <input type="file" name="image" accept=".jpg,.jpeg,.png,.webp">
-            <?php if ($currentImage !== ''): ?>
-                <img class="admin-thumb admin-thumb-large" src="<?php echo admin_e($currentImage); ?>" alt="">
-            <?php endif; ?>
+            <?php if ($currentImage !== ''): ?><img class="admin-thumb admin-thumb-large" src="<?php echo admin_e($currentImage); ?>" alt=""><?php endif; ?>
+        </label>
+        <label class="admin-full" id="seasonal-main-field">Главное изображение seasonal акции
+            <input type="file" name="image_main" accept=".jpg,.jpeg,.png,.webp">
+            <?php if ($currentImageMain !== ''): ?><img class="admin-thumb admin-thumb-large" src="<?php echo admin_e($currentImageMain); ?>" alt=""><?php endif; ?>
+        </label>
+        <label class="admin-full" id="seasonal-list-field">Изображение для списка seasonal акции
+            <input type="file" name="image_list" accept=".jpg,.jpeg,.png,.webp">
+            <?php if ($currentImageList !== ''): ?><img class="admin-thumb admin-thumb-large" src="<?php echo admin_e($currentImageList); ?>" alt=""><?php endif; ?>
         </label>
 
-        <label class="admin-full" id="categories-field">
-            Категории для акции
+        <label class="admin-full" id="categories-field">Категории
             <select name="category_ids[]" multiple size="8">
                 <?php foreach ($categories as $category): ?>
-                    <option value="<?php echo admin_e((string)$category['id']); ?>" <?php echo in_array((int)$category['id'], $selectedCategories, true) ? 'selected' : ''; ?>>
-                        <?php echo admin_e((string)$category['name']); ?>
-                    </option>
+                    <option value="<?php echo admin_e((string)$category['id']); ?>" <?php echo in_array((int)$category['id'], $selectedCategories, true) ? 'selected' : ''; ?>><?php echo admin_e((string)$category['name']); ?></option>
                 <?php endforeach; ?>
             </select>
         </label>
 
-        <label class="admin-full" id="products-field">
-            Товары для акции
-            <select name="product_ids[]" multiple size="10">
+        <div class="admin-full" id="products-field">
+            <span class="admin-field-title">Товары</span>
+            <div class="admin-picker" data-multi-picker>
                 <?php foreach ($products as $product): ?>
-                    <option value="<?php echo admin_e((string)$product['id']); ?>" <?php echo in_array((int)$product['id'], $selectedProducts, true) ? 'selected' : ''; ?>>
-                        #<?php echo admin_e((string)$product['id']); ?> - <?php echo admin_e((string)$product['name']); ?>
-                    </option>
+                    <?php $isSelected = in_array((int)$product['id'], $selectedProducts, true); ?>
+                    <button type="button" class="admin-picker__item <?php echo $isSelected ? 'is-selected' : ''; ?>" data-picker-option data-input-id="promotion-product-<?php echo admin_e((string)$product['id']); ?>">
+                        <span>#<?php echo admin_e((string)$product['id']); ?></span>
+                        <span><?php echo admin_e((string)$product['name']); ?></span>
+                    </button>
+                    <input type="checkbox" class="admin-picker__input" id="promotion-product-<?php echo admin_e((string)$product['id']); ?>" name="product_ids[]" value="<?php echo admin_e((string)$product['id']); ?>" <?php echo $isSelected ? 'checked' : ''; ?>>
                 <?php endforeach; ?>
-            </select>
-        </label>
+            </div>
+        </div>
 
         <button type="submit">Сохранить изменения</button>
     </form>
 </section>
-
 <script>
-    (function () {
-        const scope = document.getElementById('promotion-scope');
-        const categoriesField = document.getElementById('categories-field');
-        const productsField = document.getElementById('products-field');
+(function () {
+    const scope = document.getElementById('promotion-scope');
+    const type = document.getElementById('promotion-type');
+    const categories = document.getElementById('categories-field');
+    const products = document.getElementById('products-field');
+    const regular = document.getElementById('regular-image-field');
+    const seasonalMain = document.getElementById('seasonal-main-field');
+    const seasonalList = document.getElementById('seasonal-list-field');
 
-        function refreshScopeFields() {
-            if (!scope || !categoriesField || !productsField) {
-                return;
-            }
-            const value = scope.value;
-            categoriesField.style.display = value === 'categories' ? 'grid' : 'none';
-            productsField.style.display = value === 'products' ? 'grid' : 'none';
-        }
+    function refresh() {
+        if (categories) categories.style.display = scope.value === 'categories' ? 'grid' : 'none';
+        if (products) products.style.display = scope.value === 'products' ? 'grid' : 'none';
+        const seasonal = type.value === 'seasonal';
+        if (regular) regular.style.display = seasonal ? 'none' : 'grid';
+        if (seasonalMain) seasonalMain.style.display = seasonal ? 'grid' : 'none';
+        if (seasonalList) seasonalList.style.display = seasonal ? 'grid' : 'none';
+    }
 
-        if (scope) {
-            scope.addEventListener('change', refreshScopeFields);
-        }
-        refreshScopeFields();
-    })();
+    scope.addEventListener('change', refresh);
+    type.addEventListener('change', refresh);
+    refresh();
+
+    document.querySelectorAll('[data-multi-picker]').forEach(function (picker) {
+        picker.querySelectorAll('[data-picker-option]').forEach(function (button) {
+            button.addEventListener('click', function () {
+                const input = document.getElementById(button.getAttribute('data-input-id'));
+                if (!input) {
+                    return;
+                }
+                input.checked = !input.checked;
+                button.classList.toggle('is-selected', input.checked);
+            });
+        });
+    });
+})();
 </script>
 <?php admin_render_footer(); ?>

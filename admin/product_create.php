@@ -3,10 +3,12 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/includes/layout.php';
+require_once __DIR__ . '/../includes/product_options.php';
 
 admin_require_auth();
 
 global $pdo;
+product_options_ensure_schema($pdo);
 
 $categories = [];
 $errors = [];
@@ -17,6 +19,7 @@ $form = [
     'stock_quantity' => '',
     'category_id' => '',
 ];
+$variantPayload = product_admin_form_payload(0);
 
 try {
     $stmt = $pdo->query('SELECT id, name FROM categories ORDER BY name ASC');
@@ -79,6 +82,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $stmtImage->execute([$productId, $imagePath]);
             }
 
+            product_save_parameters($pdo, $productId, (array)($_POST['product_parameters'] ?? []));
+            product_save_variants($pdo, $productId, (array)($_POST['product_variants'] ?? []));
+
             $pdo->commit();
             admin_set_flash('success', 'Товар создан.');
             admin_redirect('/admin/products.php');
@@ -139,7 +145,22 @@ admin_render_header('Создание товара', 'products');
             Изображение (JPG, PNG, WEBP)
             <input type="file" name="image" accept=".jpg,.jpeg,.png,.webp">
         </label>
+        <div class="admin-full admin-variants"
+            data-parameter-catalog="<?php echo admin_e(json_encode(array_column((array)$variantPayload['catalog'], 'name', 'code'), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?: '{}'); ?>"
+            data-initial-parameters="<?php echo admin_e(json_encode($variantPayload['parameters'], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?: '[]'); ?>"
+            data-initial-variants="<?php echo admin_e(json_encode($variantPayload['variants'], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?: '[]'); ?>">
+            <div>
+                <h3 class="admin-variants__section-title">Параметры товара</h3>
+                <p class="admin-variants__hint">Комбинации вариантов формируются автоматически при изменении значений и переключении чекбоксов.</p>
+                <div data-parameters></div>
+            </div>
+            <div>
+                <h3 class="admin-variants__section-title">Варианты</h3>
+                <div data-variants></div>
+            </div>
+        </div>
         <button type="submit">Создать товар</button>
     </form>
 </section>
+<script src="/admin/assets/product-variants.js" defer></script>
 <?php admin_render_footer(); ?>

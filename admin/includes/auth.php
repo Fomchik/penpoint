@@ -75,6 +75,10 @@ function admin_authenticate(string $email, string $password): bool
         }
 
         session_regenerate_id(true);
+        $_SESSION['user_id'] = (int)$user['id'];
+        $_SESSION['user_name'] = (string)$user['name'];
+        $_SESSION['user_email'] = (string)$user['email'];
+        $_SESSION['role_name'] = 'admin';
         $_SESSION['admin_user_id'] = (int)$user['id'];
         $_SESSION['admin_user_name'] = (string)$user['name'];
         $_SESSION['admin_user_email'] = (string)$user['email'];
@@ -89,6 +93,10 @@ function admin_authenticate(string $email, string $password): bool
 function admin_logout(): void
 {
     unset(
+        $_SESSION['user_id'],
+        $_SESSION['user_name'],
+        $_SESSION['user_email'],
+        $_SESSION['role_name'],
         $_SESSION['admin_user_id'],
         $_SESSION['admin_user_name'],
         $_SESSION['admin_user_email'],

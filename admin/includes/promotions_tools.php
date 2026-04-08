@@ -4,6 +4,34 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/bootstrap.php';
 
+function admin_promotion_ensure_schema(PDO $pdo): void
+{
+    static $done = false;
+    if ($done) {
+        return;
+    }
+    $done = true;
+
+    try {
+        $columns = [];
+        foreach ($pdo->query('SHOW COLUMNS FROM promotions') ?: [] as $column) {
+            $columns[(string)$column['Field']] = true;
+        }
+
+        if (!isset($columns['promotion_type'])) {
+            $pdo->exec("ALTER TABLE promotions ADD COLUMN promotion_type ENUM('regular','seasonal') NOT NULL DEFAULT 'regular' AFTER short_text");
+        }
+        if (!isset($columns['image_main'])) {
+            $pdo->exec("ALTER TABLE promotions ADD COLUMN image_main VARCHAR(255) NULL DEFAULT NULL AFTER image_path");
+        }
+        if (!isset($columns['image_list'])) {
+            $pdo->exec("ALTER TABLE promotions ADD COLUMN image_list VARCHAR(255) NULL DEFAULT NULL AFTER image_main");
+        }
+    } catch (Throwable $e) {
+        admin_log_error('promotion_schema', $e);
+    }
+}
+
 function admin_promotion_status_labels(): array
 {
     return [
@@ -21,6 +49,14 @@ function admin_promotion_scope_labels(): array
     ];
 }
 
+function admin_promotion_type_labels(): array
+{
+    return [
+        'regular' => 'Regular',
+        'seasonal' => 'Seasonal',
+    ];
+}
+
 function admin_promotion_parse_ids($values): array
 {
     if (!is_array($values)) {
@@ -29,11 +65,8 @@ function admin_promotion_parse_ids($values): array
 
     $result = [];
     foreach ($values as $value) {
-        if (is_numeric($value)) {
-            $id = (int)$value;
-            if ($id > 0) {
-                $result[$id] = $id;
-            }
+        if (is_numeric($value) && (int)$value > 0) {
+            $result[(int)$value] = (int)$value;
         }
     }
 
@@ -54,8 +87,10 @@ function admin_promotion_fetch_products(PDO $pdo): array
 
 function admin_promotion_fetch_one(PDO $pdo, int $promotionId): ?array
 {
+    admin_promotion_ensure_schema($pdo);
+
     $stmt = $pdo->prepare(
-        'SELECT id, title, short_text, image_path, date_start, date_end, discount_percent, apply_scope, status
+        'SELECT id, title, short_text, image_path, image_main, image_list, promotion_type, date_start, date_end, discount_percent, apply_scope, status
          FROM promotions
          WHERE id = ? LIMIT 1'
     );
@@ -79,28 +114,26 @@ function admin_promotion_fetch_links(PDO $pdo, int $promotionId, string $scope):
 
 function admin_promotion_sync_links(PDO $pdo, int $promotionId, string $scope, array $selectedIds): void
 {
-    $stmtDeleteProducts = $pdo->prepare('DELETE FROM promotion_products WHERE promotion_id = ?');
-    $stmtDeleteCategories = $pdo->prepare('DELETE FROM promotion_categories WHERE promotion_id = ?');
-    $stmtDeleteProducts->execute([$promotionId]);
-    $stmtDeleteCategories->execute([$promotionId]);
+    $pdo->prepare('DELETE FROM promotion_products WHERE promotion_id = ?')->execute([$promotionId]);
+    $pdo->prepare('DELETE FROM promotion_categories WHERE promotion_id = ?')->execute([$promotionId]);
 
     if ($scope === 'products') {
-        if (!$selectedIds) {
+        if ($selectedIds === []) {
             return;
         }
-        $stmtInsert = $pdo->prepare('INSERT INTO promotion_products (promotion_id, product_id) VALUES (?, ?)');
+        $stmt = $pdo->prepare('INSERT INTO promotion_products (promotion_id, product_id) VALUES (?, ?)');
         foreach ($selectedIds as $productId) {
-            $stmtInsert->execute([$promotionId, (int)$productId]);
+            $stmt->execute([$promotionId, (int)$productId]);
         }
         return;
     }
 
-    if (!$selectedIds) {
+    if ($selectedIds === []) {
         return;
     }
-    $stmtInsert = $pdo->prepare('INSERT INTO promotion_categories (promotion_id, category_id) VALUES (?, ?)');
+    $stmt = $pdo->prepare('INSERT INTO promotion_categories (promotion_id, category_id) VALUES (?, ?)');
     foreach ($selectedIds as $categoryId) {
-        $stmtInsert->execute([$promotionId, (int)$categoryId]);
+        $stmt->execute([$promotionId, (int)$categoryId]);
     }
 }
 
@@ -113,23 +146,14 @@ function admin_promotion_force_status(PDO $pdo, int $promotionId, string $target
 
     $today = new DateTimeImmutable('today');
     $dateStart = new DateTimeImmutable((string)$promotion['date_start']);
-    $dateEnd = null;
-    if (!empty($promotion['date_end'])) {
-        $dateEnd = new DateTimeImmutable((string)$promotion['date_end']);
-    }
+    $dateEnd = !empty($promotion['date_end']) ? new DateTimeImmutable((string)$promotion['date_end']) : null;
 
     if ($targetStatus === 'draft') {
         $newStart = $today->modify('+1 day');
-        $newEnd = $dateEnd;
-        if ($newEnd !== null && $newEnd < $newStart) {
-            $newEnd = $newStart;
-        }
+        $newEnd = $dateEnd !== null && $dateEnd < $newStart ? $newStart : $dateEnd;
     } elseif ($targetStatus === 'active') {
         $newStart = $dateStart > $today ? $today : $dateStart;
-        $newEnd = $dateEnd;
-        if ($newEnd !== null && $newEnd < $today) {
-            $newEnd = $today;
-        }
+        $newEnd = $dateEnd !== null && $dateEnd < $today ? $today : $dateEnd;
     } elseif ($targetStatus === 'finished') {
         $newEnd = $today->modify('-1 day');
         $newStart = $dateStart > $newEnd ? $newEnd : $dateStart;

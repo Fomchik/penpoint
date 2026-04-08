@@ -4,10 +4,10 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/includes/layout.php';
 require_once __DIR__ . '/includes/order_statuses.php';
+require_once __DIR__ . '/../includes/orders.php';
 
 admin_require_auth();
-
-global $pdo;
+app_ensure_order_schema($pdo);
 
 $orderId = admin_safe_int($_GET['id'] ?? 0);
 if ($orderId <= 0) {
@@ -19,7 +19,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     admin_validate_csrf_or_fail();
     $statusSlug = (string)($_POST['status_slug'] ?? '');
     $statusMap = admin_order_status_map();
-
     if (!isset($statusMap[$statusSlug])) {
         admin_set_flash('error', 'Некорректный статус.');
         admin_redirect('/admin/order_view.php?id=' . $orderId);
@@ -37,40 +36,33 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     admin_redirect('/admin/order_view.php?id=' . $orderId);
 }
 
-$order = null;
-$items = [];
-
-try {
-    $stmt = $pdo->prepare(
-        'SELECT o.id, o.total_price, o.address, o.created_at, o.status_id, os.name AS status_name,
-                u.id AS user_id, u.name AS user_name, u.email AS user_email, u.phone AS user_phone
-         FROM orders o
-         LEFT JOIN order_statuses os ON os.id = o.status_id
-         LEFT JOIN users u ON u.id = o.user_id
-         WHERE o.id = ? LIMIT 1'
-    );
-    $stmt->execute([$orderId]);
-    $order = $stmt->fetch();
-
-    if (!is_array($order)) {
-        admin_set_flash('error', 'Заказ не найден.');
-        admin_redirect('/admin/orders.php');
-    }
-
-    $stmtItems = $pdo->prepare(
-        'SELECT oi.product_id, oi.quantity, oi.price, oi.base_price, oi.discount_percent, p.name AS product_name
-         FROM order_items oi
-         LEFT JOIN products p ON p.id = oi.product_id
-         WHERE oi.order_id = ?
-         ORDER BY oi.id ASC'
-    );
-    $stmtItems->execute([$orderId]);
-    $items = $stmtItems->fetchAll() ?: [];
-} catch (Throwable $e) {
-    admin_log_error('order_view_fetch', $e);
-    admin_set_flash('error', 'Не удалось загрузить заказ.');
+$stmt = $pdo->prepare(
+    'SELECT o.id, o.total_price, o.delivery_price, o.discount_total, o.address, o.created_at, o.status_id, o.payment_method, o.payment_status,
+            os.name AS status_name, dm.name AS delivery_name,
+            u.id AS user_id, u.name AS user_name, u.email AS user_email, u.phone AS user_phone,
+            o.customer_name, o.customer_email, o.customer_phone
+     FROM orders o
+     LEFT JOIN order_statuses os ON os.id = o.status_id
+     LEFT JOIN delivery_methods dm ON dm.id = o.delivery_method_id
+     LEFT JOIN users u ON u.id = o.user_id
+     WHERE o.id = ? LIMIT 1'
+);
+$stmt->execute([$orderId]);
+$order = $stmt->fetch();
+if (!$order) {
+    admin_set_flash('error', 'Заказ не найден.');
     admin_redirect('/admin/orders.php');
 }
+
+$stmtItems = $pdo->prepare(
+    'SELECT oi.product_id, oi.variant_id, oi.quantity, oi.price, oi.base_price, oi.discount_percent, oi.title, oi.variant_label, oi.attributes_json, p.name AS product_name
+     FROM order_items oi
+     LEFT JOIN products p ON p.id = oi.product_id
+     WHERE oi.order_id = ?
+     ORDER BY oi.id ASC'
+);
+$stmtItems->execute([$orderId]);
+$items = $stmtItems->fetchAll() ?: [];
 
 $statusMap = admin_order_status_map();
 $currentStatusSlug = admin_order_status_slug_by_id((int)$order['status_id']);
@@ -82,33 +74,32 @@ admin_render_header('Заказ #' . $orderId, 'orders');
         <h2>Заказ #<?php echo admin_e((string)$order['id']); ?></h2>
         <a class="admin-link-btn" href="/admin/orders.php">К списку заказов</a>
     </div>
-
     <div class="admin-grid-2">
         <article class="admin-panel">
             <h3>Информация о заказе</h3>
             <p><strong>Дата:</strong> <?php echo admin_e(date('d.m.Y H:i', strtotime((string)$order['created_at']))); ?></p>
             <p><strong>Сумма:</strong> <?php echo admin_e(number_format((float)$order['total_price'], 2, '.', ' ')); ?></p>
+            <p><strong>Доставка:</strong> <?php echo admin_e((string)($order['delivery_name'] ?? '—')); ?> / <?php echo admin_e(number_format((float)($order['delivery_price'] ?? 0), 2, '.', ' ')); ?></p>
+            <p><strong>Скидка:</strong> <?php echo admin_e(number_format((float)($order['discount_total'] ?? 0), 2, '.', ' ')); ?></p>
             <p><strong>Адрес:</strong> <?php echo admin_e((string)($order['address'] ?? '—')); ?></p>
-            <p><strong>Текущий статус:</strong> <?php echo admin_e((string)$order['status_name']); ?> (<?php echo admin_e($currentStatusSlug); ?>)</p>
+            <p><strong>Оплата:</strong> <?php echo admin_e((string)$order['payment_method']); ?> / <?php echo admin_e((string)$order['payment_status']); ?></p>
+            <p><strong>Текущий статус:</strong> <?php echo admin_e((string)$order['status_name']); ?></p>
         </article>
         <article class="admin-panel">
             <h3>Покупатель</h3>
             <p><strong>ID:</strong> <?php echo admin_e((string)($order['user_id'] ?? '—')); ?></p>
-            <p><strong>Имя:</strong> <?php echo admin_e((string)($order['user_name'] ?? 'Гость')); ?></p>
-            <p><strong>Email:</strong> <?php echo admin_e((string)($order['user_email'] ?? '—')); ?></p>
-            <p><strong>Телефон:</strong> <?php echo admin_e((string)($order['user_phone'] ?? '—')); ?></p>
+            <p><strong>Имя:</strong> <?php echo admin_e((string)($order['customer_name'] ?: $order['user_name'] ?: 'Гость')); ?></p>
+            <p><strong>Email:</strong> <?php echo admin_e((string)($order['customer_email'] ?: $order['user_email'] ?: '—')); ?></p>
+            <p><strong>Телефон:</strong> <?php echo admin_e((string)($order['customer_phone'] ?: $order['user_phone'] ?: '—')); ?></p>
         </article>
     </div>
 
     <form method="post" class="admin-form admin-form-inline">
         <?php echo admin_csrf_input(); ?>
-        <label>
-            Изменить статус
+        <label>Изменить статус
             <select name="status_slug">
-                <?php foreach ($statusMap as $slug => $data): ?>
-                    <option value="<?php echo admin_e($slug); ?>" <?php echo $slug === $currentStatusSlug ? 'selected' : ''; ?>>
-                        <?php echo admin_e($slug . ' / ' . $data['label']); ?>
-                    </option>
+                <?php foreach ($statusMap as $slug => $status): ?>
+                    <option value="<?php echo admin_e($slug); ?>" <?php echo $slug === $currentStatusSlug ? 'selected' : ''; ?>><?php echo admin_e($status['label']); ?></option>
                 <?php endforeach; ?>
             </select>
         </label>
@@ -122,21 +113,39 @@ admin_render_header('Заказ #' . $orderId, 'orders');
         <thead>
         <tr>
             <th>Товар</th>
-            <th>ID товара</th>
+            <th>Product ID</th>
+            <th>Variant ID</th>
+            <th>Вариант</th>
             <th>Количество</th>
             <th>Базовая цена</th>
             <th>Скидка %</th>
-            <th>Цена в заказе</th>
+            <th>Цена покупки</th>
         </tr>
         </thead>
         <tbody>
-        <?php if (!$items): ?>
-            <tr><td colspan="6">В заказе нет позиций.</td></tr>
+        <?php if ($items === []): ?>
+            <tr><td colspan="8">В заказе нет позиций.</td></tr>
         <?php else: ?>
             <?php foreach ($items as $item): ?>
+                <?php $attributes = json_decode((string)($item['attributes_json'] ?? ''), true); ?>
                 <tr>
-                    <td><?php echo admin_e((string)($item['product_name'] ?? 'Удалённый товар')); ?></td>
+                    <td>
+                        <?php echo admin_e((string)($item['title'] ?: $item['product_name'] ?: 'Удалённый товар')); ?>
+                        <?php if (is_array($attributes) && $attributes !== []): ?>
+                            <div class="admin-cell-text">
+                                <?php
+                                $parts = [];
+                                foreach ($attributes as $key => $value) {
+                                    $parts[] = admin_e((string)$key . ': ' . (string)$value);
+                                }
+                                echo implode(' · ', $parts);
+                                ?>
+                            </div>
+                        <?php endif; ?>
+                    </td>
                     <td><?php echo admin_e((string)$item['product_id']); ?></td>
+                    <td><?php echo admin_e((string)($item['variant_id'] ?? '—')); ?></td>
+                    <td><?php echo admin_e((string)($item['variant_label'] ?? '—')); ?></td>
                     <td><?php echo admin_e((string)$item['quantity']); ?></td>
                     <td><?php echo admin_e(number_format((float)$item['base_price'], 2, '.', ' ')); ?></td>
                     <td><?php echo admin_e((string)$item['discount_percent']); ?></td>

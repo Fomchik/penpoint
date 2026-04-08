@@ -3,81 +3,36 @@ require_once __DIR__ . '/../includes/security.php';
 app_start_session();
 require_once __DIR__ . '/../includes/config.php';
 
+sync_promotion_statuses();
+
+$all_promos = [];
 try {
-    $stmt = $pdo->query("
-        SELECT
-            id,
-            title,
-            short_text,
-            image_path,
-            date_start,
-            date_end,
-            effective_status AS status
-        FROM v_promotion_status
-        ORDER BY date_start DESC, id DESC
-    ");
+    $stmt = $pdo->query(
+        'SELECT v.id, v.title, v.short_text, v.effective_status AS status, p.promotion_type, p.image_path, p.image_main, p.image_list
+         FROM v_promotion_status v
+         INNER JOIN promotions p ON p.id = v.id
+         ORDER BY v.date_start DESC, v.id DESC'
+    );
     $all_promos = $stmt->fetchAll() ?: [];
-} catch (PDOException $e) {
-    error_log('Database error (promotions view): ' . $e->getMessage());
-    try {
-        $stmt = $pdo->query("
-            SELECT
-                id,
-                title,
-                short_text,
-                image_path,
-                date_start,
-                date_end,
-                CASE
-                    WHEN date_start > CURDATE() THEN 'draft'
-                    WHEN date_end IS NOT NULL AND date_end < CURDATE() THEN 'finished'
-                    ELSE 'active'
-                END AS status
-            FROM promotions
-            ORDER BY date_start DESC, id DESC
-        ");
-        $all_promos = $stmt->fetchAll() ?: [];
-    } catch (PDOException $e2) {
-        error_log('Database error (promotions fallback): ' . $e2->getMessage());
-        $all_promos = [];
-    }
+} catch (Throwable $e) {
+    error_log('Sales promotions error: ' . $e->getMessage());
 }
 
 $active_promos = [];
 $expired_promos = [];
-
 foreach ($all_promos as $promo) {
+    $promo['image_resolved'] = (string)(
+        ($promo['promotion_type'] ?? 'regular') === 'seasonal'
+            ? ($promo['image_list'] ?: $promo['image_main'] ?: $promo['image_path'])
+            : ($promo['image_path'] ?: $promo['image_list'] ?: $promo['image_main'])
+    );
+
     if (($promo['status'] ?? '') === 'active') {
         $active_promos[] = $promo;
     } elseif (($promo['status'] ?? '') === 'finished') {
         $expired_promos[] = $promo;
     }
 }
-
-$banner_files = glob(__DIR__ . '/../assets/banners/*.{png,jpg,jpeg,webp}', GLOB_BRACE);
-$banner_urls = [];
-foreach ($banner_files as $file) {
-    $basename = basename($file);
-    if (stripos($basename, 'hero') !== false) {
-        continue;
-    }
-    $banner_urls[] = BASE_PATH . '/assets/banners/' . $basename;
-}
-
-$assignImages = function (array &$promos) use ($banner_urls) {
-    if (empty($banner_urls)) {
-        return;
-    }
-    $count = count($banner_urls);
-    foreach ($promos as $idx => &$promo) {
-        if (empty($promo['image_path'])) {
-            $promo['image_path'] = $banner_urls[$idx % $count];
-        }
-    }
-};
-
-$assignImages($active_promos);
-$assignImages($expired_promos);
 ?>
 <!DOCTYPE html>
 <html lang="ru">
@@ -87,11 +42,11 @@ $assignImages($expired_promos);
     <link rel="icon" type="image/svg+xml" href="/assets/icons/favicon.svg">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700&family=Open+Sans:wght@400;600&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="<?php echo BASE_PATH; ?>/styles/global.css">
-    <link rel="stylesheet" href="<?php echo BASE_PATH; ?>/styles/header.css">
-    <link rel="stylesheet" href="<?php echo BASE_PATH; ?>/styles/footer.css">
-    <link rel="stylesheet" href="<?php echo BASE_PATH; ?>/styles/sales.css">
+    <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/styles/global.css">
+    <link rel="stylesheet" href="/styles/header.css">
+    <link rel="stylesheet" href="/styles/footer.css">
+    <link rel="stylesheet" href="/styles/sales.css">
     <title>Акции — Канцария</title>
 </head>
 <body>
@@ -106,17 +61,15 @@ $assignImages($expired_promos);
                 <h2 class="sales-section__title">Действующие акции</h2>
                 <div class="sales-grid sales-grid--current">
                     <?php foreach ($active_promos as $promo): ?>
-                        <article class="sales-card">
+                        <a class="sales-card" href="/pages/catalog.php?promotion_id=<?php echo (int)$promo['id']; ?>">
                             <div class="sales-card__image-wrapper">
-                                <img src="<?php echo htmlspecialchars($promo['image_path'], ENT_QUOTES); ?>"
-                                     alt="<?php echo htmlspecialchars($promo['title'], ENT_QUOTES); ?>"
-                                     class="sales-card__image">
+                                <img src="<?php echo htmlspecialchars((string)$promo['image_resolved'], ENT_QUOTES, 'UTF-8'); ?>" alt="<?php echo htmlspecialchars((string)$promo['title']); ?>" class="sales-card__image">
                             </div>
                             <div class="sales-card__content">
-                                <h3 class="sales-card__title"><?php echo htmlspecialchars($promo['title']); ?></h3>
-                                <p class="sales-card__text"><?php echo htmlspecialchars($promo['short_text']); ?></p>
+                                <h3 class="sales-card__title"><?php echo htmlspecialchars((string)$promo['title']); ?></h3>
+                                <p class="sales-card__text"><?php echo htmlspecialchars((string)$promo['short_text']); ?></p>
                             </div>
-                        </article>
+                        </a>
                     <?php endforeach; ?>
                 </div>
             </section>
@@ -129,13 +82,11 @@ $assignImages($expired_promos);
                     <?php foreach ($expired_promos as $promo): ?>
                         <article class="sales-card sales-card--expired">
                             <div class="sales-card__image-wrapper">
-                                <img src="<?php echo htmlspecialchars($promo['image_path'], ENT_QUOTES); ?>"
-                                     alt="<?php echo htmlspecialchars($promo['title'], ENT_QUOTES); ?>"
-                                     class="sales-card__image">
+                                <img src="<?php echo htmlspecialchars((string)$promo['image_resolved'], ENT_QUOTES, 'UTF-8'); ?>" alt="<?php echo htmlspecialchars((string)$promo['title']); ?>" class="sales-card__image">
                             </div>
                             <div class="sales-card__content">
-                                <h3 class="sales-card__title"><?php echo htmlspecialchars($promo['title']); ?></h3>
-                                <p class="sales-card__text"><?php echo htmlspecialchars($promo['short_text']); ?></p>
+                                <h3 class="sales-card__title"><?php echo htmlspecialchars((string)$promo['title']); ?></h3>
+                                <p class="sales-card__text"><?php echo htmlspecialchars((string)$promo['short_text']); ?></p>
                             </div>
                         </article>
                     <?php endforeach; ?>
