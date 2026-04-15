@@ -13,11 +13,24 @@ $orderCount = 0;
 $userCount = 0;
 $latestOrders = [];
 
-try {
-    $productCount = (int)($pdo->query('SELECT COUNT(*) FROM products')->fetchColumn() ?: 0);
-    $orderCount = (int)($pdo->query('SELECT COUNT(*) FROM orders')->fetchColumn() ?: 0);
-    $userCount = (int)($pdo->query('SELECT COUNT(*) FROM users')->fetchColumn() ?: 0);
+/**
+ * Возвращает количество по SQL-запросу, не влияя на остальные метрики при ошибке.
+ */
+function admin_fetch_count_safe(PDO $pdo, string $sql, string $logKey): int
+{
+    try {
+        return (int)($pdo->query($sql)->fetchColumn() ?: 0);
+    } catch (Throwable $e) {
+        admin_log_error($logKey, $e);
+        return 0;
+    }
+}
 
+$productCount = admin_fetch_count_safe($pdo, 'SELECT COUNT(*) FROM products', 'dashboard_products_count');
+$orderCount = admin_fetch_count_safe($pdo, 'SELECT COUNT(*) FROM orders', 'dashboard_orders_count');
+$userCount = admin_fetch_count_safe($pdo, 'SELECT COUNT(*) FROM users', 'dashboard_users_count');
+
+try {
     $stmt = $pdo->query(
         'SELECT o.id, o.total_price, o.created_at, u.name AS user_name, os.name AS status_name
          FROM orders o

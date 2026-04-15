@@ -63,14 +63,18 @@
                     return '<span>' + escapeHtml(key) + ': ' + escapeHtml(item.attributes[key]) + '</span>';
                 }).join(' · ')
                 : '';
+            const meta = attributes || (item.variant_label ? escapeHtml(item.variant_label) : '');
+            const productId = Number(item.product_id) || 0;
+            const productUrl = productId > 0
+                ? (window.appResolvePath || function (path) { return String(path || ''); })('/pages/page-product.php?id=' + encodeURIComponent(String(productId)))
+                : '';
 
             return '' +
                 '<article class="cart-item-row' + (!item.available ? ' cart-item-row--unavailable' : '') + '" data-line-key="' + escapeHtml(lineKey(item)) + '">' +
                 '<div class="cart-item-row__image"><img src="' + safePath(item.image, '/assets/product_images/default.png') + '" alt="' + escapeHtml(item.title) + '"></div>' +
                 '<div class="cart-item-row__content">' +
-                '<h3 class="cart-item-row__name">' + escapeHtml(item.title) + '</h3>' +
-                (item.variant_label ? '<div class="cart-item-row__meta">' + escapeHtml(item.variant_label) + '</div>' : '') +
-                (attributes ? '<div class="cart-item-row__meta">' + attributes + '</div>' : '') +
+                '<h3 class="cart-item-row__name">' + (productUrl ? '<a class="cart-item-row__name-link" href="' + escapeHtml(productUrl) + '">' + escapeHtml(item.title) + '</a>' : escapeHtml(item.title)) + '</h3>' +
+                (meta ? '<div class="cart-item-row__meta">' + meta + '</div>' : '') +
                 '<div class="cart-item-row__tools">' +
                 '<div class="cart-item-row__qty">' +
                 '<button type="button" class="cart-item-row__qty-btn" data-action="dec"' + (!item.available ? ' disabled' : '') + '>−</button>' +

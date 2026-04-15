@@ -7,7 +7,6 @@ $q = isset($_GET['q']) ? trim((string)$_GET['q']) : '';
 $sort = isset($_GET['sort']) ? (string)$_GET['sort'] : 'new';
 $page = max(1, (int)($_GET['page'] ?? 1));
 $per_page = 12;
-$promotion_id = isset($_GET['promotion_id']) ? (int)$_GET['promotion_id'] : 0;
 
 $min_price = isset($_GET['min_price']) && $_GET['min_price'] !== '' ? (float)$_GET['min_price'] : null;
 $max_price = isset($_GET['max_price']) && $_GET['max_price'] !== '' ? (float)$_GET['max_price'] : null;
@@ -57,10 +56,6 @@ if ($pickup_only) {
 if ($sale_only) {
     $where[] = 'p.discount_percent > 0';
 }
-if ($promotion_id > 0) {
-    $where[] = 'p.promotion_id = ?';
-    $params[] = $promotion_id;
-}
 
 $where_sql = implode(' AND ', $where);
 $stmt_total = $pdo->prepare("SELECT COUNT(*) AS cnt FROM v_product_pricing p WHERE $where_sql");
@@ -101,17 +96,6 @@ try {
     error_log('Catalog pickup count error: ' . $e->getMessage());
 }
 
-$promotion_title = '';
-if ($promotion_id > 0) {
-    try {
-        $stmtPromo = $pdo->prepare('SELECT title FROM promotions WHERE id = ? LIMIT 1');
-        $stmtPromo->execute([$promotion_id]);
-        $promotion_title = (string)($stmtPromo->fetchColumn() ?: '');
-    } catch (Throwable $e) {
-        error_log('Catalog promotion title error: ' . $e->getMessage());
-    }
-}
-
 $is_ajax = !empty($_SERVER['HTTP_X_REQUESTED_WITH']) && strtolower((string)$_SERVER['HTTP_X_REQUESTED_WITH']) === 'xmlhttprequest';
 
 function build_query(array $overrides = []): string
@@ -149,9 +133,6 @@ function build_query(array $overrides = []): string
 <main class="main catalog">
     <aside class="catalog__filters">
         <form class="filters" id="catalog-filters-form" method="get" action="/pages/catalog.php">
-            <?php if ($promotion_id > 0): ?>
-                <input type="hidden" name="promotion_id" value="<?php echo (int)$promotion_id; ?>">
-            <?php endif; ?>
             <div class="filters__section">
                 <div class="filters__title">Доставка</div>
                 <label class="filters__check">
@@ -194,19 +175,8 @@ function build_query(array $overrides = []): string
 <?php endif; ?>
 
     <section class="catalog__content" id="catalog-content">
-        <?php if ($promotion_title !== ''): ?>
-            <div class="catalog__toolbar"><strong>Фильтр по акции:</strong>&nbsp;<?php echo htmlspecialchars($promotion_title); ?>&nbsp;<a href="/pages/catalog.php?<?php echo htmlspecialchars(build_query(['promotion_id' => null, 'page' => 1])); ?>">сбросить</a></div>
-        <?php endif; ?>
         <div class="catalog__toolbar">
             <form method="get" class="catalog__sort" id="catalog-sort-form">
-                <?php foreach ($_GET as $k => $v): ?>
-                    <?php if ($k === 'sort') continue; ?>
-                    <?php if (is_array($v)): ?>
-                        <?php foreach ($v as $vv): ?><input type="hidden" name="<?php echo htmlspecialchars($k); ?>[]" value="<?php echo htmlspecialchars((string)$vv); ?>"><?php endforeach; ?>
-                    <?php else: ?>
-                        <input type="hidden" name="<?php echo htmlspecialchars($k); ?>" value="<?php echo htmlspecialchars((string)$v); ?>">
-                    <?php endif; ?>
-                <?php endforeach; ?>
                 <select name="sort" class="catalog__sort-select">
                     <option value="new" <?php echo $sort === 'new' ? 'selected' : ''; ?>>Новинки</option>
                     <option value="price_asc" <?php echo $sort === 'price_asc' ? 'selected' : ''; ?>>Цена: по возрастанию</option>

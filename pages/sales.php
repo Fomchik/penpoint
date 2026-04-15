@@ -19,7 +19,7 @@ try {
 }
 
 $active_promos = [];
-$expired_promos = [];
+$finished_promos = [];
 foreach ($all_promos as $promo) {
     $promo['image_resolved'] = (string)(
         ($promo['promotion_type'] ?? 'regular') === 'seasonal'
@@ -29,8 +29,12 @@ foreach ($all_promos as $promo) {
 
     if (($promo['status'] ?? '') === 'active') {
         $active_promos[] = $promo;
-    } elseif (($promo['status'] ?? '') === 'finished') {
-        $expired_promos[] = $promo;
+        continue;
+    }
+
+    $status = (string)($promo['status'] ?? '');
+    if ($status !== '' && $status !== 'active') {
+        $finished_promos[] = $promo;
     }
 }
 ?>
@@ -61,7 +65,7 @@ foreach ($all_promos as $promo) {
                 <h2 class="sales-section__title">Действующие акции</h2>
                 <div class="sales-grid sales-grid--current">
                     <?php foreach ($active_promos as $promo): ?>
-                        <a class="sales-card" href="/pages/catalog.php?promotion_id=<?php echo (int)$promo['id']; ?>">
+                        <a class="sales-card" href="<?php echo htmlspecialchars(app_promotion_catalog_url((int)$promo['id']), ENT_QUOTES, 'UTF-8'); ?>">
                             <div class="sales-card__image-wrapper">
                                 <img src="<?php echo htmlspecialchars((string)$promo['image_resolved'], ENT_QUOTES, 'UTF-8'); ?>" alt="<?php echo htmlspecialchars((string)$promo['title']); ?>" class="sales-card__image">
                             </div>
@@ -75,11 +79,11 @@ foreach ($all_promos as $promo) {
             </section>
         <?php endif; ?>
 
-        <?php if (!empty($expired_promos)): ?>
-            <section class="sales-section sales-section--expired" aria-label="Завершенные акции">
-                <h2 class="sales-section__title">Завершенные акции</h2>
-                <div class="sales-grid sales-grid--expired">
-                    <?php foreach ($expired_promos as $promo): ?>
+        <section class="sales-section sales-section--past" aria-label="Завершенные акции">
+            <h2 class="sales-section__title">Завершенные</h2>
+            <?php if (!empty($finished_promos)): ?>
+                <div class="sales-grid sales-grid--past">
+                    <?php foreach ($finished_promos as $promo): ?>
                         <article class="sales-card sales-card--expired">
                             <div class="sales-card__image-wrapper">
                                 <img src="<?php echo htmlspecialchars((string)$promo['image_resolved'], ENT_QUOTES, 'UTF-8'); ?>" alt="<?php echo htmlspecialchars((string)$promo['title']); ?>" class="sales-card__image">
@@ -91,8 +95,11 @@ foreach ($all_promos as $promo) {
                         </article>
                     <?php endforeach; ?>
                 </div>
-            </section>
-        <?php endif; ?>
+            <?php else: ?>
+                <p class="sales-section__empty">Пока нет завершенных акций.</p>
+            <?php endif; ?>
+        </section>
+
     </main>
     <?php include __DIR__ . '/../includes/footer.php'; ?>
 </body>

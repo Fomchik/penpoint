@@ -3,8 +3,10 @@ require_once __DIR__ . '/../includes/security.php';
 app_start_session();
 require_once __DIR__ . '/../includes/config.php';
 require_once __DIR__ . '/../includes/orders.php';
+require_once __DIR__ . '/../includes/reviews.php';
 
 app_ensure_order_schema($pdo);
+reviews_ensure_schema($pdo);
 
 if (!isset($_SESSION['user_id'])) {
     header('Location: /pages/login.php');
@@ -21,6 +23,10 @@ $current_tab = (string)($_GET['tab'] ?? 'profile');
 $error = '';
 $feedback_error = '';
 $feedback_success = '';
+$review_error = '';
+$review_success = '';
+$review_form_order_id = max(0, (int)($_GET['review_order'] ?? 0));
+$review_form_product_id = max(0, (int)($_GET['review_product'] ?? 0));
 
 try {
     $stmt = $pdo->prepare(
@@ -83,11 +89,38 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['send_feedback'])) {
     }
 }
 
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['submit_review'])) {
+    app_validate_csrf_or_fail();
+    $current_tab = 'orders';
+    $review_form_order_id = max(0, (int)($_POST['order_id'] ?? 0));
+    $review_form_product_id = max(0, (int)($_POST['product_id'] ?? 0));
+    $rating = max(1, min(5, (int)($_POST['rating'] ?? 0)));
+    $comment = trim((string)($_POST['comment'] ?? ''));
+
+    if ($review_form_order_id <= 0 || $review_form_product_id <= 0) {
+        $review_error = 'Некорректные данные для отзыва.';
+    } elseif (mb_strlen($comment, 'UTF-8') < 5) {
+        $review_error = 'Комментарий должен содержать не менее 5 символов.';
+    } elseif (!reviews_can_user_submit($pdo, $review_form_product_id, $user_id)) {
+        $review_error = 'Оставить отзыв можно только после получения заказа и только один раз.';
+    } else {
+        try {
+            reviews_create($pdo, $review_form_product_id, $user_id, $rating, $comment);
+            $review_success = 'Отзыв сохранён.';
+            $review_form_order_id = 0;
+            $review_form_product_id = 0;
+        } catch (Throwable $e) {
+            error_log('Account review create error: ' . $e->getMessage());
+            $review_error = 'Не удалось сохранить отзыв.';
+        }
+    }
+}
+
 $orders = [];
 $order_items = [];
 try {
     $stmt = $pdo->prepare(
-        'SELECT o.id, o.total_price, o.delivery_price, o.discount_total, o.address, o.created_at,
+        'SELECT o.id, o.status_id, o.total_price, o.delivery_price, o.discount_total, o.address, o.created_at,
                 o.payment_method, o.payment_status, os.name AS status_name, dm.name AS delivery_name
          FROM orders o
          LEFT JOIN order_statuses os ON os.id = o.status_id
@@ -105,8 +138,7 @@ try {
         $placeholders = implode(',', array_fill(0, count($order_ids), '?'));
         $stmt = $pdo->prepare(
             "SELECT oi.order_id, oi.product_id, oi.variant_id, oi.quantity, oi.price, oi.base_price,
-                    oi.discount_percent, oi.title, oi.variant_label, oi.attributes_json,
-                    p.name AS product_name
+                    oi.discount_percent, oi.title, oi.variant_label, oi.attributes_json, p.name AS product_name
              FROM order_items oi
              LEFT JOIN products p ON p.id = oi.product_id
              WHERE oi.order_id IN ($placeholders)
@@ -123,6 +155,41 @@ try {
     }
 } catch (PDOException $e) {
     error_log('Orders fetch error: ' . $e->getMessage());
+}
+
+$my_reviews = [];
+$reviewed_product_ids = [];
+try {
+    $stmt = $pdo->prepare(
+        'SELECT r.id, r.product_id, r.rating, r.comment, r.created_at, p.name AS product_name
+         FROM reviews r
+         LEFT JOIN products p ON p.id = r.product_id
+         WHERE r.user_id = ?
+         ORDER BY r.created_at DESC, r.id DESC'
+    );
+    $stmt->execute([$user_id]);
+    $my_reviews = $stmt->fetchAll() ?: [];
+    foreach ($my_reviews as $row) {
+        $reviewed_product_ids[(int)$row['product_id']] = true;
+    }
+} catch (PDOException $e) {
+    error_log('Account reviews fetch error: ' . $e->getMessage());
+}
+
+$review_allowed = [];
+foreach ($orders as $order) {
+    $order_id = (int)$order['id'];
+    if ((int)($order['status_id'] ?? 0) !== 4 || empty($order_items[$order_id])) {
+        continue;
+    }
+
+    foreach ($order_items[$order_id] as $item) {
+        $product_id = (int)($item['product_id'] ?? 0);
+        if ($product_id <= 0) {
+            continue;
+        }
+        $review_allowed[$order_id . ':' . $product_id] = !isset($reviewed_product_ids[$product_id]);
+    }
 }
 ?>
 <!DOCTYPE html>
@@ -151,6 +218,7 @@ try {
                 <ul class="account-nav__list">
                     <li class="account-nav__item"><a href="/pages/account.php?tab=profile" class="account-nav__link <?php echo $current_tab === 'profile' ? 'account-nav__link--active' : ''; ?>">Профиль</a></li>
                     <li class="account-nav__item"><a href="/pages/account.php?tab=orders" class="account-nav__link <?php echo $current_tab === 'orders' ? 'account-nav__link--active' : ''; ?>">Заказы</a></li>
+                    <li class="account-nav__item"><a href="/pages/account.php?tab=my-reviews" class="account-nav__link <?php echo $current_tab === 'my-reviews' ? 'account-nav__link--active' : ''; ?>">Мои отзывы</a></li>
                     <li class="account-nav__item"><a href="/pages/account.php?tab=favorites" class="account-nav__link <?php echo $current_tab === 'favorites' ? 'account-nav__link--active' : ''; ?>">Избранное <span class="account-nav__badge" id="favorites-count">0</span></a></li>
                     <li class="account-nav__item"><a href="/pages/account.php?tab=feedback" class="account-nav__link <?php echo $current_tab === 'feedback' ? 'account-nav__link--active' : ''; ?>">Обратная связь</a></li>
                 </ul>
@@ -198,9 +266,10 @@ try {
                     <?php else: ?>
                         <div class="orders-list">
                             <?php foreach ($orders as $order): ?>
+                                <?php $order_id = (int)$order['id']; ?>
                                 <article class="orders-item">
                                     <div class="orders-item__header">
-                                        <span class="orders-item__id">Заказ №<?php echo (int)$order['id']; ?></span>
+                                        <span class="orders-item__id">Заказ №<?php echo $order_id; ?></span>
                                         <span class="orders-item__status orders-item__status--<?php echo htmlspecialchars(strtolower(str_replace(' ', '-', (string)$order['status_name']))); ?>">
                                             <?php echo htmlspecialchars((string)$order['status_name']); ?>
                                         </span>
@@ -212,10 +281,15 @@ try {
                                     <?php if (!empty($order['address'])): ?>
                                         <div class="orders-item__date">Адрес: <?php echo htmlspecialchars((string)$order['address']); ?></div>
                                     <?php endif; ?>
-                                    <?php if (!empty($order_items[(int)$order['id']])): ?>
+                                    <?php if (!empty($order_items[$order_id])): ?>
                                         <div style="margin-top:16px;">
-                                            <?php foreach ($order_items[(int)$order['id']] as $item): ?>
-                                                <?php $attributes = json_decode((string)($item['attributes_json'] ?? ''), true); ?>
+                                            <?php foreach ($order_items[$order_id] as $item): ?>
+                                                <?php
+                                                $attributes = json_decode((string)($item['attributes_json'] ?? ''), true);
+                                                $product_id = (int)($item['product_id'] ?? 0);
+                                                $can_review = !empty($review_allowed[$order_id . ':' . $product_id]);
+                                                $is_review_form_open = ($review_form_order_id === $order_id && $review_form_product_id === $product_id);
+                                                ?>
                                                 <div style="padding:10px 0;border-top:1px solid #eee;">
                                                     <div><?php echo htmlspecialchars((string)($item['title'] ?: $item['product_name'] ?: 'Товар')); ?></div>
                                                     <?php if (!empty($item['variant_label'])): ?>
@@ -233,10 +307,67 @@ try {
                                                         </div>
                                                     <?php endif; ?>
                                                     <div style="color:#666;font-size:14px;">Количество: <?php echo (int)$item['quantity']; ?> · Цена: <?php echo format_price((float)$item['price']); ?></div>
+                                                    <?php if ($can_review): ?>
+                                                        <div style="margin-top:10px;">
+                                                            <a class="profile-form__submit" style="display:inline-block;text-decoration:none;" href="/pages/account.php?tab=orders&review_order=<?php echo $order_id; ?>&review_product=<?php echo $product_id; ?>">Отзыв</a>
+                                                        </div>
+                                                    <?php endif; ?>
+                                                    <?php if ($is_review_form_open): ?>
+                                                        <div style="margin-top:12px;padding:12px;border:1px solid #e5e5e5;border-radius:8px;background:#fafafa;">
+                                                            <?php if ($review_error !== ''): ?>
+                                                                <div class="message message--error"><?php echo htmlspecialchars($review_error, ENT_QUOTES, 'UTF-8'); ?></div>
+                                                            <?php endif; ?>
+                                                            <?php if ($review_success !== ''): ?>
+                                                                <div class="message message--success"><?php echo htmlspecialchars($review_success, ENT_QUOTES, 'UTF-8'); ?></div>
+                                                            <?php endif; ?>
+                                                            <form method="post">
+                                                                <?php echo app_csrf_input(); ?>
+                                                                <input type="hidden" name="order_id" value="<?php echo $order_id; ?>">
+                                                                <input type="hidden" name="product_id" value="<?php echo $product_id; ?>">
+                                                                <div class="feedback-form__field">
+                                                                    <label class="feedback-form__label">Оценка</label>
+                                                                    <select name="rating" class="feedback-form__input" required>
+                                                                        <option value="5">5</option>
+                                                                        <option value="4">4</option>
+                                                                        <option value="3">3</option>
+                                                                        <option value="2">2</option>
+                                                                        <option value="1">1</option>
+                                                                    </select>
+                                                                </div>
+                                                                <div class="feedback-form__field">
+                                                                    <label class="feedback-form__label">Отзыв</label>
+                                                                    <textarea name="comment" class="feedback-form__textarea" required minlength="5"></textarea>
+                                                                </div>
+                                                                <button type="submit" name="submit_review" class="profile-form__submit">Сохранить отзыв</button>
+                                                            </form>
+                                                        </div>
+                                                    <?php endif; ?>
                                                 </div>
                                             <?php endforeach; ?>
                                         </div>
                                     <?php endif; ?>
+                                </article>
+                            <?php endforeach; ?>
+                        </div>
+                    <?php endif; ?>
+                </div>
+
+                <div class="account-section <?php echo $current_tab === 'my-reviews' ? 'account-section--active' : ''; ?>">
+                    <h2 class="account-content__title">Мои отзывы</h2>
+                    <?php if ($my_reviews === []): ?>
+                        <div class="empty-state"><p>Вы пока не оставляли отзывы.</p></div>
+                    <?php else: ?>
+                        <div class="orders-list">
+                            <?php foreach ($my_reviews as $review): ?>
+                                <article class="orders-item">
+                                    <div class="orders-item__header">
+                                        <a href="/pages/page-product.php?id=<?php echo (int)$review['product_id']; ?>" style="text-decoration:none;color:inherit;font-weight:700;">
+                                            <?php echo htmlspecialchars((string)($review['product_name'] ?: ('Товар #' . (int)$review['product_id']))); ?>
+                                        </a>
+                                        <span class="orders-item__status">Оценка: <?php echo (int)$review['rating']; ?>/5</span>
+                                    </div>
+                                    <div class="orders-item__date"><?php echo htmlspecialchars(date('d.m.Y H:i', strtotime((string)$review['created_at']))); ?></div>
+                                    <div style="margin-top:8px;color:#333;"><?php echo nl2br(htmlspecialchars((string)$review['comment'], ENT_QUOTES, 'UTF-8')); ?></div>
                                 </article>
                             <?php endforeach; ?>
                         </div>

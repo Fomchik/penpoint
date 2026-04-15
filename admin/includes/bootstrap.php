@@ -69,7 +69,32 @@ function admin_get_uploads_dir(): string
     return $dir;
 }
 
-function admin_handle_image_upload(array $file): ?string
+function admin_slugify(string $value): string
+{
+    $value = trim(mb_strtolower($value, 'UTF-8'));
+    if (function_exists('transliterator_transliterate')) {
+        $value = (string)transliterator_transliterate('Any-Latin; Latin-ASCII', $value);
+    }
+    $value = preg_replace('/[^a-z0-9]+/u', '-', $value) ?: '';
+    $value = trim($value, '-');
+
+    return $value !== '' ? $value : 'misc';
+}
+
+function admin_public_upload_dir(string $group, string $subPath = ''): array
+{
+    $group = trim($group, '/');
+    $subPath = trim($subPath, '/');
+    $relative = '/assets/' . $group . ($subPath !== '' ? '/' . $subPath : '');
+    $absolute = dirname(__DIR__, 2) . str_replace('/', DIRECTORY_SEPARATOR, $relative);
+    if (!is_dir($absolute)) {
+        @mkdir($absolute, 0755, true);
+    }
+
+    return [$absolute, $relative];
+}
+
+function admin_handle_image_upload(array $file, array $options = []): ?string
 {
     if (!isset($file['error']) || (int)$file['error'] === UPLOAD_ERR_NO_FILE) {
         return null;
@@ -97,14 +122,33 @@ function admin_handle_image_upload(array $file): ?string
     }
 
     $ext = $allowed[$mime];
-    $name = 'product_' . date('Ymd_His') . '_' . bin2hex(random_bytes(6)) . '.' . $ext;
-    $destination = admin_get_uploads_dir() . '/' . $name;
+    $target = (string)($options['target'] ?? 'uploads');
+    $prefix = admin_slugify((string)($options['prefix'] ?? 'image'));
+    $subPath = trim((string)($options['sub_path'] ?? ''), '/');
+
+    if ($target === 'product_images') {
+        $subPath = $subPath !== '' ? $subPath : ('misc/' . date('Y/m'));
+        [$baseDir, $basePath] = admin_public_upload_dir('product_images', $subPath);
+        $name = $prefix . '_' . date('Ymd_His') . '_' . bin2hex(random_bytes(6)) . '.' . $ext;
+        $destination = $baseDir . DIRECTORY_SEPARATOR . $name;
+        $publicPath = $basePath . '/' . $name;
+    } elseif ($target === 'banners') {
+        $subPath = $subPath !== '' ? $subPath : ('misc/' . date('Y/m'));
+        [$baseDir, $basePath] = admin_public_upload_dir('banners', $subPath);
+        $name = $prefix . '_' . date('Ymd_His') . '_' . bin2hex(random_bytes(6)) . '.' . $ext;
+        $destination = $baseDir . DIRECTORY_SEPARATOR . $name;
+        $publicPath = $basePath . '/' . $name;
+    } else {
+        $name = 'upload_' . date('Ymd_His') . '_' . bin2hex(random_bytes(6)) . '.' . $ext;
+        $destination = admin_get_uploads_dir() . '/' . $name;
+        $publicPath = '/uploads/' . $name;
+    }
 
     if (!move_uploaded_file((string)$file['tmp_name'], $destination)) {
         throw new RuntimeException('Не удалось сохранить изображение.');
     }
 
-    return '/uploads/' . $name;
+    return $publicPath;
 }
 
 function admin_path_with_redirect(string $path): string

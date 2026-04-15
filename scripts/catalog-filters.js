@@ -5,7 +5,6 @@
     'use strict';
 
     const form = document.getElementById('catalog-filters-form');
-    const sortForm = document.getElementById('catalog-sort-form');
     const contentEl = document.getElementById('catalog-content');
 
     if (!form || !contentEl) return;
@@ -16,13 +15,25 @@
         for (const [k, v] of fd.entries()) {
             if (v) params.append(k, v);
         }
+        return params;
+    }
+
+    function buildQueryParams() {
+        const params = getFormData(form);
+        params.delete('page');
+
+        const sortSelect = document.querySelector('#catalog-sort-form select[name="sort"]');
+        if (sortSelect && sortSelect.value) {
+            params.set('sort', sortSelect.value);
+        } else {
+            params.set('sort', 'new');
+        }
+
         return params.toString();
     }
 
     function applyFilters() {
-        const params = getFormData(form);
-        const sortParams = sortForm ? getFormData(sortForm) : '';
-        const allParams = params ? (sortParams ? params + '&' + sortParams : params) : sortParams;
+        const allParams = buildQueryParams();
         const url = '/pages/catalog.php' + (allParams ? '?' + allParams : '');
 
         contentEl.style.opacity = '0.5';
@@ -36,6 +47,9 @@
                 const newContent = doc.getElementById('catalog-content');
                 if (newContent) {
                     contentEl.innerHTML = newContent.innerHTML;
+                    if (window.history && typeof window.history.replaceState === 'function') {
+                        window.history.replaceState({}, '', url);
+                    }
                     if (window.Cart) window.Cart.updateCartBadge();
                     if (window.Favorites) window.Favorites.updateBadge();
                 }
@@ -69,9 +83,9 @@
         }
     });
 
-    if (sortForm) {
-        sortForm.addEventListener('change', function() {
+    document.addEventListener('change', function(event) {
+        if (event.target && event.target.matches('#catalog-sort-form select[name="sort"]')) {
             applyFilters();
-        });
-    }
+        }
+    });
 })();

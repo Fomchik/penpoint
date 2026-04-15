@@ -17,6 +17,7 @@ $rating = $product ? get_product_rating($product['id']) : ['rating' => 0, 'count
 $discount_percent = $product ? (int)$product['discount_percent'] : 0;
 $price_old = $product ? (float)$product['price_old'] : 0;
 $price_new = $product ? (float)$product['price'] : 0;
+$has_discount_price = $product ? ($price_old > $price_new) : false;
 $colors = $product ? get_product_colors($product['id']) : [];
 $needs_color_panel = $product ? product_needs_color_panel($product['id']) : false;
 $product_options = $product ? get_product_options_for_product((int)$product['id']) : [];
@@ -24,7 +25,6 @@ $product_images = $product ? app_fetch_product_images((int)$product['id']) : [];
 $initial_state = $product ? build_dynamic_product_state($product, [], $product_images) : [];
 $related_products = $product ? enrich_products_with_discounts(get_related_products($product['id'], 3)) : [];
 $reviews = $product ? reviews_fetch_product($pdo, (int)$product['id']) : [];
-$can_leave_review = isset($_SESSION['user_id']) && $product ? reviews_can_user_submit($pdo, (int)$product['id'], (int)$_SESSION['user_id']) : false;
 
 try {
     $stmt = $pdo->query('SELECT id, name, price FROM delivery_methods ORDER BY id ASC');
@@ -79,8 +79,8 @@ try {
                         <h1 class="product-page__title"><?php echo htmlspecialchars($product['name']); ?></h1>
 
                         <div class="product-page__prices">
-                            <span class="product-page__price-old<?php echo $discount_percent ? '' : ' visually-hidden'; ?>" data-base-price><?php echo format_price($price_old); ?></span>
-                            <span class="product-page__price-new" data-final-price><?php echo format_price($price_new); ?></span>
+                            <span class="product-page__price-old<?php echo $has_discount_price ? '' : ' visually-hidden'; ?>" data-base-price><?php echo format_price($price_old); ?></span>
+                            <span class="<?php echo $has_discount_price ? 'product-page__price-new' : 'product-page__price-current'; ?>" data-final-price><?php echo format_price($price_new); ?></span>
                         </div>
 
                         <div class="product-page__rating">
@@ -181,18 +181,33 @@ try {
                                     <p><?php echo nl2br(htmlspecialchars($product['description'] ?: 'Описание отсутствует.')); ?></p>
                                 </div>
                                 <div class="product-page__tab-content" data-content="specs">
-                                    <table style="width: 100%; border-collapse: collapse;">
-                                        <tr style="border-bottom: 1px solid #e5e5e5;">
-                                            <td style="padding: 12px 0; font-weight: 600; color: #666;">Категория</td>
-                                            <td style="padding: 12px 0;"><?php echo htmlspecialchars($product['category_name'] ?? 'Не указана'); ?></td>
+                                    <table class="product-page__spec-table">
+                                        <tr>
+                                            <td class="product-page__spec-name">Категория</td>
+                                            <td class="product-page__spec-value"><?php echo htmlspecialchars($product['category_name'] ?? 'Не указана'); ?></td>
                                         </tr>
-                                        <tr style="border-bottom: 1px solid #e5e5e5;">
-                                            <td style="padding: 12px 0; font-weight: 600; color: #666;">Наличие</td>
-                                            <td style="padding: 12px 0;" data-product-spec-stock><?php echo (int)$initial_state['stock']; ?> шт.</td>
+                                        <tbody data-product-spec-attributes>
+                                            <?php if (!empty($initial_state['attributes']) && is_array($initial_state['attributes'])): ?>
+                                                <?php foreach ($initial_state['attributes'] as $attributeName => $attributeValue): ?>
+                                                    <tr>
+                                                        <td class="product-page__spec-name"><?php echo htmlspecialchars((string)$attributeName); ?></td>
+                                                        <td class="product-page__spec-value"><?php echo htmlspecialchars((string)$attributeValue); ?></td>
+                                                    </tr>
+                                                <?php endforeach; ?>
+                                            <?php else: ?>
+                                                <tr>
+                                                    <td class="product-page__spec-name">Вариант</td>
+                                                    <td class="product-page__spec-value">Базовый</td>
+                                                </tr>
+                                            <?php endif; ?>
+                                        </tbody>
+                                        <tr>
+                                            <td class="product-page__spec-name">Наличие</td>
+                                            <td class="product-page__spec-value" data-product-spec-stock><?php echo (int)$initial_state['stock']; ?> шт.</td>
                                         </tr>
-                                        <tr style="border-bottom: 1px solid #e5e5e5;">
-                                            <td style="padding: 12px 0; font-weight: 600; color: #666;">Цена</td>
-                                            <td style="padding: 12px 0;" data-product-spec-price><?php echo format_price($price_new); ?></td>
+                                        <tr>
+                                            <td class="product-page__spec-name">Цена</td>
+                                            <td class="product-page__spec-value" data-product-spec-price><?php echo format_price($price_new); ?></td>
                                         </tr>
                                     </table>
                                 </div>
@@ -217,29 +232,7 @@ try {
                                             <strong>Средняя оценка: <?php echo htmlspecialchars(number_format((float)$rating['rating'], 1, '.', ''), ENT_QUOTES, 'UTF-8'); ?></strong>
                                             <span>Всего отзывов: <?php echo (int)$rating['count']; ?></span>
                                         </div>
-                                        <?php if (isset($_SESSION['user_id'])): ?>
-                                            <form class="product-reviews__form<?php echo $can_leave_review ? '' : ' product-reviews__form--disabled'; ?>" data-review-form>
-                                                <?php echo app_csrf_input(); ?>
-                                                <input type="hidden" name="product_id" value="<?php echo (int)$product['id']; ?>">
-                                                <input type="hidden" name="rating" value="0" data-review-rating-input>
-                                                <div class="product-reviews__stars" data-review-stars>
-                                                    <?php for ($i = 1; $i <= 5; $i++): ?>
-                                                        <button type="button" class="product-reviews__star" data-rating-value="<?php echo $i; ?>" aria-label="Оценка <?php echo $i; ?>">
-                                                            <img src="/assets/icons/star.svg" alt="" width="20" height="20">
-                                                        </button>
-                                                    <?php endfor; ?>
-                                                </div>
-                                                <label class="product-reviews__field">
-                                                    <span>Комментарий</span>
-                                                    <textarea name="comment" rows="4" maxlength="1000" <?php echo $can_leave_review ? '' : 'disabled'; ?> required></textarea>
-                                                </label>
-                                                <div class="product-reviews__notice" data-review-message>
-                                                    <?php echo $can_leave_review ? 'Оставьте оценку и комментарий.' : 'Отзыв можно оставить только после получения заказа с этим товаром. Повторный отзыв не допускается.'; ?>
-                                                </div>
-                                                <button type="submit" class="product-reviews__submit" <?php echo $can_leave_review ? '' : 'disabled'; ?>>Отправить отзыв</button>
-                                            </form>
-                                        <?php endif; ?>
-                                        <div class="product-reviews__list" data-review-list>
+<div class="product-reviews__list" data-review-list>
                                             <?php if ($reviews === []): ?>
                                                 <div class="product-reviews__empty">Пока нет отзывов.</div>
                                             <?php else: ?>

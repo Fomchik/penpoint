@@ -5,6 +5,7 @@ require_once __DIR__ . '/../includes/config.php';
 ?>
 <!DOCTYPE html>
 <html lang="ru">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -19,6 +20,7 @@ require_once __DIR__ . '/../includes/config.php';
     <link rel="stylesheet" href="/styles/cart.css">
     <title>Корзина — Канцария</title>
 </head>
+
 <body>
     <?php include __DIR__ . '/../includes/header.php'; ?>
 
@@ -97,4 +99,5 @@ require_once __DIR__ . '/../includes/config.php';
     <?php include __DIR__ . '/../includes/footer.php'; ?>
     <script src="/scripts/cart-page.js"></script>
 </body>
+
 </html>

@@ -22,6 +22,30 @@
         return result;
     }
 
+    function renderVariantAttributes(root, attributes) {
+        const holder = root.querySelector('[data-product-spec-attributes]');
+        if (!holder) {
+            return;
+        }
+
+        const entries = Object.entries(attributes || {}).filter(function (item) {
+            return String(item[0] || '').trim() !== '' && String(item[1] || '').trim() !== '';
+        });
+
+        if (entries.length === 0) {
+            holder.innerHTML = '<tr><td class="product-page__spec-name">Вариант</td><td class="product-page__spec-value">Базовый</td></tr>';
+            return;
+        }
+
+        holder.innerHTML = entries.map(function (item) {
+            return '' +
+                '<tr>' +
+                    '<td class="product-page__spec-name">' + escapeHtml(item[0]) + '</td>' +
+                    '<td class="product-page__spec-value">' + escapeHtml(item[1]) + '</td>' +
+                '</tr>';
+        }).join('');
+    }
+
     function applyState(root, state) {
         if (!state) {
             return;
@@ -35,7 +59,12 @@
         const image = root.querySelector('[data-product-image]');
         const addButton = root.querySelector('.product-page__add-to-cart');
 
-        if (price) price.textContent = state.price_formatted || formatPrice(state.price);
+        if (price) {
+            const showBase = Number(state.base_price) > Number(state.price);
+            price.textContent = state.price_formatted || formatPrice(state.price);
+            price.classList.toggle('product-page__price-new', showBase);
+            price.classList.toggle('product-page__price-current', !showBase);
+        }
         if (basePrice) {
             const showBase = Number(state.base_price) > Number(state.price);
             basePrice.textContent = state.base_price_formatted || formatPrice(state.base_price);
@@ -44,6 +73,7 @@
         if (stock) stock.textContent = String(Number(state.stock) || 0) + ' шт';
         if (specPrice) specPrice.textContent = state.price_formatted || formatPrice(state.price);
         if (specStock) specStock.textContent = String(Number(state.stock) || 0) + ' шт.';
+        renderVariantAttributes(root, state.attributes || {});
         if (image && state.image) image.src = state.image;
         if (addButton) {
             addButton.setAttribute('data-product-price', String(Number(state.price) || 0));

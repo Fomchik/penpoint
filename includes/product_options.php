@@ -266,20 +266,61 @@ function get_product_options_for_product(int $productId): array
 {
     $parameters = product_fetch_parameters($productId);
     if ($parameters !== []) {
-        $schema = [];
+        $schemaMap = [];
         foreach ($parameters as $parameter) {
             if (empty($parameter['values'])) {
                 continue;
             }
-            $schema[] = [
-                'id' => (int)$parameter['id'],
-                'code' => (string)$parameter['code'],
-                'label' => (string)$parameter['name'],
-                'ui' => count($parameter['values']) > 4 ? 'select' : 'buttons',
-                'values' => array_values($parameter['values']),
-                'use_for_variants' => (int)$parameter['use_for_variants'] === 1,
-            ];
+
+            $cleanValues = [];
+            foreach ((array)$parameter['values'] as $rawValue) {
+                $value = trim((string)$rawValue);
+                if ($value === '' || mb_strtolower($value, 'UTF-8') === 'нет') {
+                    continue;
+                }
+                $signature = mb_strtolower($value, 'UTF-8');
+                if (isset($cleanValues[$signature])) {
+                    continue;
+                }
+                $cleanValues[$signature] = $value;
+            }
+            if ($cleanValues === []) {
+                continue;
+            }
+
+            $key = mb_strtolower(trim((string)$parameter['code']) !== '' ? (string)$parameter['code'] : (string)$parameter['name'], 'UTF-8');
+            if (!isset($schemaMap[$key])) {
+                $schemaMap[$key] = [
+                    'id' => (int)$parameter['id'],
+                    'code' => (string)$parameter['code'],
+                    'label' => (string)$parameter['name'],
+                    'ui' => 'buttons',
+                    'values' => [],
+                    'use_for_variants' => false,
+                ];
+            }
+
+            foreach ($cleanValues as $value) {
+                $signature = mb_strtolower($value, 'UTF-8');
+                $exists = false;
+                foreach ($schemaMap[$key]['values'] as $existingValue) {
+                    if (mb_strtolower((string)$existingValue, 'UTF-8') === $signature) {
+                        $exists = true;
+                        break;
+                    }
+                }
+                if (!$exists) {
+                    $schemaMap[$key]['values'][] = $value;
+                }
+            }
+            $schemaMap[$key]['use_for_variants'] = $schemaMap[$key]['use_for_variants'] || ((int)$parameter['use_for_variants'] === 1);
         }
+
+        $schema = array_values($schemaMap);
+        foreach ($schema as &$item) {
+            $item['ui'] = count($item['values']) > 4 ? 'select' : 'buttons';
+        }
+        unset($item);
         return $schema;
     }
 
@@ -301,11 +342,50 @@ function product_selection_signature(array $selection): array
     return $normalized;
 }
 
+function product_normalize_selection_for_product(int $productId, array $selection): array
+{
+    $normalized = [];
+    $params = product_fetch_parameters($productId);
+    $codeToName = [];
+    $nameToCode = [];
+
+    foreach ($params as $param) {
+        $code = mb_strtolower(trim((string)($param['code'] ?? '')), 'UTF-8');
+        $name = mb_strtolower(trim((string)($param['name'] ?? '')), 'UTF-8');
+        if ($code !== '' && $name !== '') {
+            $codeToName[$code] = $name;
+            $nameToCode[$name] = $code;
+        }
+    }
+
+    foreach ($selection as $key => $value) {
+        $rawKey = mb_strtolower(trim((string)$key), 'UTF-8');
+        $rawValue = trim((string)$value);
+        if ($rawKey === '' || $rawValue === '') {
+            continue;
+        }
+
+        $normalizedValue = mb_strtolower($rawValue, 'UTF-8');
+        $normalized[$rawKey] = $normalizedValue;
+
+        if (isset($codeToName[$rawKey])) {
+            $normalized[$codeToName[$rawKey]] = $normalizedValue;
+        }
+        if (isset($nameToCode[$rawKey])) {
+            $normalized[$nameToCode[$rawKey]] = $normalizedValue;
+        }
+    }
+
+    ksort($normalized);
+    return $normalized;
+}
+
 function product_find_variant_by_selection(int $productId, array $selection): ?array
 {
-    $signature = product_selection_signature($selection);
+    $signature = product_normalize_selection_for_product($productId, $selection);
     foreach (product_fetch_variants($productId, true) as $variant) {
-        if (product_selection_signature($variant['attributes']) === $signature) {
+        $variantSignature = product_normalize_selection_for_product($productId, (array)($variant['attributes'] ?? []));
+        if ($variantSignature === $signature) {
             return $variant;
         }
     }
@@ -427,7 +507,7 @@ function product_collect_cart_snapshot(array $product, ?array $variant = null): 
 
 function product_normalize_admin_parameter_rows(array $rows): array
 {
-    $result = [];
+    $grouped = [];
     foreach ($rows as $index => $row) {
         if (!is_array($row)) {
             continue;
@@ -448,11 +528,49 @@ function product_normalize_admin_parameter_rows(array $rows): array
             continue;
         }
 
+        $key = mb_strtolower($name, 'UTF-8');
+        if (!isset($grouped[$key])) {
+            $grouped[$key] = [
+                'name' => $name,
+                'code' => product_option_code_from_name($name),
+                'values' => [],
+                'use_for_variants' => 0,
+            ];
+        }
+
+        foreach ($values as $value) {
+            $value = trim((string)$value);
+            if ($value === '' || mb_strtolower($value, 'UTF-8') === 'нет') {
+                continue;
+            }
+            $valueKey = mb_strtolower($value, 'UTF-8');
+            $exists = false;
+            foreach ($grouped[$key]['values'] as $existingValue) {
+                if (mb_strtolower((string)$existingValue, 'UTF-8') === $valueKey) {
+                    $exists = true;
+                    break;
+                }
+            }
+            if (!$exists) {
+                $grouped[$key]['values'][] = $value;
+            }
+        }
+
+        if (!empty($row['use_for_variants'])) {
+            $grouped[$key]['use_for_variants'] = 1;
+        }
+    }
+
+    $result = [];
+    foreach (array_values($grouped) as $item) {
+        if ($item['values'] === []) {
+            continue;
+        }
         $result[] = [
-            'name' => $name,
-            'code' => product_option_code_from_name($name),
-            'values_text' => implode("\n", $values),
-            'use_for_variants' => !empty($row['use_for_variants']) ? 1 : 0,
+            'name' => $item['name'],
+            'code' => $item['code'],
+            'values_text' => implode("\n", $item['values']),
+            'use_for_variants' => $item['use_for_variants'],
             'sort_order' => count($result),
         ];
     }
@@ -475,7 +593,7 @@ function product_normalize_admin_variant_rows(array $rows): array
                 foreach ($decoded as $key => $value) {
                     $name = trim((string)$key);
                     $itemValue = trim((string)$value);
-                    if ($name !== '' && $itemValue !== '') {
+                    if ($name !== '' && $itemValue !== '' && mb_strtolower($itemValue, 'UTF-8') !== 'нет') {
                         $attributes[$name] = $itemValue;
                     }
                 }
@@ -484,7 +602,7 @@ function product_normalize_admin_variant_rows(array $rows): array
             foreach ($row['attributes'] as $key => $value) {
                 $name = trim((string)$key);
                 $itemValue = trim((string)$value);
-                if ($name !== '' && $itemValue !== '') {
+                if ($name !== '' && $itemValue !== '' && mb_strtolower($itemValue, 'UTF-8') !== 'нет') {
                     $attributes[$name] = $itemValue;
                 }
             }

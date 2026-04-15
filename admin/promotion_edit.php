@@ -73,8 +73,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if ($errors === []) {
         try {
             if ($form['promotion_type'] === 'seasonal') {
-                $uploadedMain = admin_handle_image_upload($_FILES['image_main'] ?? []);
-                $uploadedList = admin_handle_image_upload($_FILES['image_list'] ?? []);
+                $uploadedMain = admin_handle_image_upload($_FILES['image_main'] ?? [], [
+                    'target' => 'banners',
+                    'sub_path' => 'seasonal/main/' . date('Y/m'),
+                    'prefix' => 'promo-main',
+                ]);
+                $uploadedList = admin_handle_image_upload($_FILES['image_list'] ?? [], [
+                    'target' => 'banners',
+                    'sub_path' => 'seasonal/list/' . date('Y/m'),
+                    'prefix' => 'promo-list',
+                ]);
                 if ($uploadedMain !== null) $newImageMain = $uploadedMain;
                 if ($uploadedList !== null) $newImageList = $uploadedList;
                 if ($newImageMain === '' || $newImageList === '') {
@@ -82,7 +90,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 }
                 $newImage = null;
             } else {
-                $uploadedImage = admin_handle_image_upload($_FILES['image'] ?? []);
+                $uploadedImage = admin_handle_image_upload($_FILES['image'] ?? [], [
+                    'target' => 'banners',
+                    'sub_path' => 'regular/' . date('Y/m'),
+                    'prefix' => 'promo-regular',
+                ]);
                 if ($uploadedImage !== null) $newImage = $uploadedImage;
                 if ($newImage === '') {
                     throw new RuntimeException('Для regular акции нужно изображение.');

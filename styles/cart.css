@@ -128,6 +128,15 @@ body {
     font-weight: 600;
 }
 
+.cart-item-row__name-link {
+    color: inherit;
+    text-decoration: none;
+}
+
+.cart-item-row__name-link:hover {
+    color: #f2690d;
+}
+
 .cart-item-row__meta {
     margin-top: 6px;
     color: var(--cart-muted);

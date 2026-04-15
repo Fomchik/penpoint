@@ -17,8 +17,8 @@ try {
     $stmt = $pdo->query(
         "SELECT id, title, short_text, promotion_type, image_path, image_main
          FROM promotions
-         WHERE status = 'active'
-         ORDER BY CASE WHEN promotion_type = 'seasonal' THEN 0 ELSE 1 END, date_start DESC, id DESC
+         WHERE status = 'active' AND promotion_type = 'seasonal'
+         ORDER BY date_start DESC, id DESC
          LIMIT 1"
     );
     $hero_promotion = $stmt->fetch() ?: null;
@@ -32,11 +32,12 @@ if ($hero_promotion) {
     $hero_image = (string)($hero_promotion['promotion_type'] === 'seasonal'
         ? ($hero_promotion['image_main'] ?: $hero_promotion['image_path'])
         : ($hero_promotion['image_path'] ?: $hero_promotion['image_main']));
-    $hero_link = '/pages/catalog.php?promotion_id=' . (int)$hero_promotion['id'];
+    $hero_link = app_promotion_catalog_url((int)$hero_promotion['id']);
 }
 ?>
 <!DOCTYPE html>
 <html lang="ru">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -51,6 +52,7 @@ if ($hero_promotion) {
     <link rel="stylesheet" href="/styles/footer.css">
     <title>Канцария — интернет-магазин канцелярских товаров</title>
 </head>
+
 <body>
     <?php include __DIR__ . '/../includes/header.php'; ?>
 
@@ -58,7 +60,7 @@ if ($hero_promotion) {
         <section class="promo-banner" aria-label="Промо баннер">
             <?php if ($hero_link !== ''): ?><a href="<?php echo htmlspecialchars($hero_link, ENT_QUOTES, 'UTF-8'); ?>"><?php endif; ?>
                 <img src="<?php echo htmlspecialchars($hero_image, ENT_QUOTES, 'UTF-8'); ?>" alt="<?php echo htmlspecialchars((string)($hero_promotion['title'] ?? 'Акции Канцария'), ENT_QUOTES, 'UTF-8'); ?>" class="promo-banner__image">
-            <?php if ($hero_link !== ''): ?></a><?php endif; ?>
+                <?php if ($hero_link !== ''): ?></a><?php endif; ?>
         </section>
 
         <section class="categories" aria-label="Категории товаров">
@@ -68,10 +70,18 @@ if ($hero_promotion) {
                     <?php
                     $icon = 'write-icon.svg';
                     switch ((int)$cat['id']) {
-                        case 2: $icon = 'notebok-icon.svg'; break;
-                        case 3: $icon = 'organization-icon.svg'; break;
-                        case 4: $icon = 'painting-icon.svg'; break;
-                        case 5: $icon = 'accessories-icon.svg'; break;
+                        case 2:
+                            $icon = 'notebok-icon.svg';
+                            break;
+                        case 3:
+                            $icon = 'organization-icon.svg';
+                            break;
+                        case 4:
+                            $icon = 'painting-icon.svg';
+                            break;
+                        case 5:
+                            $icon = 'accessories-icon.svg';
+                            break;
                     }
                     ?>
                     <li class="categories__item">
@@ -88,7 +98,9 @@ if ($hero_promotion) {
             <h2 class="section-title">Товары со скидкой</h2>
             <div class="product-list__grid">
                 <?php foreach ($discounted_products as $product): ?>
-                    <?php $image = get_product_image($product['id']); $rating = get_product_rating($product['id']); $rating_value = (float)$rating['rating']; ?>
+                    <?php $image = get_product_image($product['id']);
+                    $rating = get_product_rating($product['id']);
+                    $rating_value = (float)$rating['rating']; ?>
                     <article class="product-card">
                         <span class="product-card__badge product-card__badge--discount"><?php echo (int)$product['discount_percent']; ?>%</span>
                         <button type="button" class="product-card__wishlist" aria-label="В избранное" data-product-id="<?php echo (int)$product['id']; ?>">
@@ -169,8 +181,39 @@ if ($hero_promotion) {
                 <?php endforeach; ?>
             </div>
         </section>
+
+         <section class="advantages" aria-label="Преимущества">
+            <h2 class="section-title">Преимущества</h2>
+            <ul class="advantages__list">
+                <li class="advantages__item">
+                    <span class="advantages__icon">
+                        <img src="/assets/icons/any-amount-icon.svg" alt="">
+                    </span>
+                    <p class="advantages__label">Заказ от любой суммы</p>
+                </li>
+                <li class="advantages__item">
+                    <span class="advantages__icon">
+                        <img src="/assets/icons/payment-by-any-method-icon.svg" alt="">
+                    </span>
+                    <p class="advantages__label">Наличная и безналичная оплата</p>
+                </li>
+                <li class="advantages__item">
+                    <span class="advantages__icon">
+                        <img src="/assets/icons/delivery-icon.svg" alt="">
+                    </span>
+                    <p class="advantages__label">Доставка по городу</p>
+                </li>
+                <li class="advantages__item">
+                    <span class="advantages__icon">
+                        <img src="/assets/icons/discounts-icon.svg" alt="">
+                    </span>
+                    <p class="advantages__label">Регулярные акции и скидки</p>
+                </li>
+            </ul>
+        </section>
     </main>
 
     <?php include __DIR__ . '/../includes/footer.php'; ?>
 </body>
+
 </html>

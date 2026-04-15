@@ -18,11 +18,15 @@ if ($productId <= 0) {
 }
 
 $categories = [];
+$categorySlugs = [];
 $errors = [];
 
 try {
-    $stmt = $pdo->query('SELECT id, name FROM categories ORDER BY name ASC');
+    $stmt = $pdo->query('SELECT id, name, slug FROM categories ORDER BY name ASC');
     $categories = $stmt->fetchAll() ?: [];
+    foreach ($categories as $category) {
+        $categorySlugs[(int)$category['id']] = trim((string)($category['slug'] ?? ''));
+    }
 } catch (Throwable $e) {
     admin_log_error('product_edit_categories', $e);
 }
@@ -89,7 +93,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $newImagePath = null;
     if (!$errors) {
         try {
-            $newImagePath = admin_handle_image_upload($_FILES['image'] ?? []);
+            $categorySlug = $categorySlugs[$categoryId] ?? 'misc';
+            $newImagePath = admin_handle_image_upload($_FILES['image'] ?? [], [
+                'target' => 'product_images',
+                'sub_path' => $categorySlug . '/' . date('Y/m'),
+                'prefix' => (string)($form['name'] !== '' ? $form['name'] : 'product'),
+            ]);
         } catch (Throwable $e) {
             $errors[] = $e->getMessage();
         }
@@ -195,12 +204,8 @@ admin_render_header('Редактирование товара', 'products');
             data-csrf-token="<?php echo admin_e(admin_csrf_token()); ?>">
             <div>
                 <h3 class="admin-variants__section-title">Параметры товара</h3>
-                <p class="admin-variants__hint">Комбинации вариантов формируются автоматически при изменении значений и переключении чекбоксов.</p>
+                <p class="admin-variants__hint">Задайте нужные параметры товара. Кнопка "+" добавляет дополнительные значения одного параметра.</p>
                 <div data-parameters></div>
-            </div>
-            <div>
-                <h3 class="admin-variants__section-title">Варианты</h3>
-                <div data-variants></div>
             </div>
         </div>
         <button type="submit">Сохранить изменения</button>

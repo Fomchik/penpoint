@@ -57,13 +57,25 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if ($errors === []) {
         try {
             if ($form['promotion_type'] === 'seasonal') {
-                $imageMain = admin_handle_image_upload($_FILES['image_main'] ?? []);
-                $imageList = admin_handle_image_upload($_FILES['image_list'] ?? []);
+                $imageMain = admin_handle_image_upload($_FILES['image_main'] ?? [], [
+                    'target' => 'banners',
+                    'sub_path' => 'seasonal/main/' . date('Y/m'),
+                    'prefix' => 'promo-main',
+                ]);
+                $imageList = admin_handle_image_upload($_FILES['image_list'] ?? [], [
+                    'target' => 'banners',
+                    'sub_path' => 'seasonal/list/' . date('Y/m'),
+                    'prefix' => 'promo-list',
+                ]);
                 if ($imageMain === null || $imageList === null) {
                     throw new RuntimeException('Для seasonal акции нужны оба изображения.');
                 }
             } else {
-                $imagePath = admin_handle_image_upload($_FILES['image'] ?? []);
+                $imagePath = admin_handle_image_upload($_FILES['image'] ?? [], [
+                    'target' => 'banners',
+                    'sub_path' => 'regular/' . date('Y/m'),
+                    'prefix' => 'promo-regular',
+                ]);
                 if ($imagePath === null) {
                     throw new RuntimeException('Для regular акции нужно изображение.');
                 }

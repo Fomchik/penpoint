@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/bootstrap.php';
+require_once __DIR__ . '/../../includes/feedback.php';
 
 function admin_feedback_status_labels(): array
 {
@@ -19,6 +20,8 @@ function admin_feedback_schema(PDO $pdo): array
     if (is_array($cache)) {
         return $cache;
     }
+
+    app_feedback_ensure_schema($pdo);
 
     $cache = [
         'has_phone' => false,

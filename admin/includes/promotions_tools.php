@@ -27,6 +27,10 @@ function admin_promotion_ensure_schema(PDO $pdo): void
         if (!isset($columns['image_list'])) {
             $pdo->exec("ALTER TABLE promotions ADD COLUMN image_list VARCHAR(255) NULL DEFAULT NULL AFTER image_main");
         }
+        try {
+            $pdo->exec("ALTER TABLE promotions MODIFY image_path VARCHAR(255) NULL DEFAULT NULL");
+        } catch (Throwable $e) {
+        }
     } catch (Throwable $e) {
         admin_log_error('promotion_schema', $e);
     }

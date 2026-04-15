@@ -2,6 +2,7 @@
 require_once __DIR__ . '/../includes/security.php';
 app_start_session();
 require_once __DIR__ . '/../includes/config.php';
+require_once __DIR__ . '/../includes/feedback.php';
 
 $success_message = '';
 $send_error = '';
@@ -32,15 +33,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if ($is_valid) {
         $saved_to_db = false;
         try {
-            $stmt = $pdo->prepare("\n                INSERT INTO feedback (name, email, subject, message)\n                VALUES (?, ?, ?, ?)\n            ");
-            $stmt->execute([
-                $name,
-                $email,
-                $subject !== '' ? ($subject_options[$subject] ?? $subject) : null,
-                $message,
+            app_feedback_insert($pdo, [
+                'name' => $name,
+                'email' => $email,
+                'phone' => $phone,
+                'subject' => $subject !== '' ? ($subject_options[$subject] ?? $subject) : '',
+                'message' => $message,
+                'status' => 'new',
             ]);
             $saved_to_db = true;
-        } catch (PDOException $e) {
+        } catch (Throwable $e) {
             error_log('Database error (feedback): ' . $e->getMessage());
         }
 

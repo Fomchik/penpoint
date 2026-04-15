@@ -18,6 +18,11 @@
     font-weight: 700;
 }
 
+.sales-section__empty {
+    margin: 0;
+    color: #7c6d60;
+}
+
 .sales-grid {
     display: grid;
     grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -62,9 +67,12 @@
     color: #4b4b4b;
 }
 
-.sales-card--expired {
+.sales-card--expired .sales-card__image {
     filter: grayscale(1);
-    opacity: 0.6;
+}
+
+.sales-card--expired {
+    opacity: 0.72;
 }
 
 .sales-pagination {

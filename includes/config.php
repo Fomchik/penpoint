@@ -558,3 +558,45 @@ function product_needs_color_panel($productId): bool
         return false;
     }
 }
+
+function app_promotion_catalog_query_params(int $promotionId): array
+{
+    global $pdo;
+
+    if ($promotionId <= 0) {
+        return [];
+    }
+
+    $params = ['sale' => '1'];
+
+    try {
+        $stmt = $pdo->prepare('SELECT apply_scope FROM promotions WHERE id = ? LIMIT 1');
+        $stmt->execute([$promotionId]);
+        $scope = (string)($stmt->fetchColumn() ?: '');
+
+        if ($scope === 'categories') {
+            $stmt = $pdo->prepare('SELECT category_id FROM promotion_categories WHERE promotion_id = ? ORDER BY category_id ASC');
+            $stmt->execute([$promotionId]);
+            $ids = array_values(array_filter(array_map('intval', $stmt->fetchAll(PDO::FETCH_COLUMN) ?: []), static function (int $id): bool {
+                return $id > 0;
+            }));
+            if ($ids !== []) {
+                $params['category'] = $ids;
+            }
+        }
+    } catch (Throwable $e) {
+        error_log('Promotion catalog params error: ' . $e->getMessage());
+    }
+
+    return $params;
+}
+
+function app_promotion_catalog_url(int $promotionId): string
+{
+    $params = app_promotion_catalog_query_params($promotionId);
+    if ($params === []) {
+        return '/pages/catalog.php';
+    }
+
+    return '/pages/catalog.php?' . http_build_query($params);
+}
