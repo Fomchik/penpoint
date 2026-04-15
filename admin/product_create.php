@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/includes/layout.php';
 require_once __DIR__ . '/../includes/product_options.php';
+require_once __DIR__ . '/includes/product_attribute_catalog.php';
 
 admin_require_auth();
 
@@ -20,6 +21,7 @@ $form = [
     'category_id' => '',
 ];
 $variantPayload = product_admin_form_payload(0);
+$attributeCatalog = admin_attribute_catalog_all($pdo);
 
 try {
     $stmt = $pdo->query('SELECT id, name FROM categories ORDER BY name ASC');
@@ -146,9 +148,11 @@ admin_render_header('Создание товара', 'products');
             <input type="file" name="image" accept=".jpg,.jpeg,.png,.webp">
         </label>
         <div class="admin-full admin-variants"
-            data-parameter-catalog="<?php echo admin_e(json_encode(array_column((array)$variantPayload['catalog'], 'name', 'code'), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?: '{}'); ?>"
+            data-parameter-catalog="<?php echo admin_e(json_encode(array_map(static function (array $item): string { return (string)$item['name']; }, $attributeCatalog), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?: '[]'); ?>"
             data-initial-parameters="<?php echo admin_e(json_encode($variantPayload['parameters'], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?: '[]'); ?>"
-            data-initial-variants="<?php echo admin_e(json_encode($variantPayload['variants'], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?: '[]'); ?>">
+            data-initial-variants="<?php echo admin_e(json_encode($variantPayload['variants'], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?: '[]'); ?>"
+            data-attribute-create-url="/admin/api/attribute_create.php"
+            data-csrf-token="<?php echo admin_e(admin_csrf_token()); ?>">
             <div>
                 <h3 class="admin-variants__section-title">Параметры товара</h3>
                 <p class="admin-variants__hint">Комбинации вариантов формируются автоматически при изменении значений и переключении чекбоксов.</p>

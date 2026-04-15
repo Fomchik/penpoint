@@ -305,7 +305,22 @@ function get_product_rating($productId): array
     global $pdo;
 
     try {
-        $stmt = $pdo->prepare('SELECT ROUND(AVG(rating), 1) AS rating, COUNT(*) AS count FROM reviews WHERE product_id = ?');
+        $hasPublishedColumn = false;
+        try {
+            foreach ($pdo->query('SHOW COLUMNS FROM reviews') ?: [] as $column) {
+                if ((string)$column['Field'] === 'is_published') {
+                    $hasPublishedColumn = true;
+                    break;
+                }
+            }
+        } catch (Throwable $e) {
+        }
+
+        $sql = 'SELECT ROUND(AVG(rating), 1) AS rating, COUNT(*) AS count FROM reviews WHERE product_id = ?';
+        if ($hasPublishedColumn) {
+            $sql .= ' AND is_published = 1';
+        }
+        $stmt = $pdo->prepare($sql);
         $stmt->execute([(int)$productId]);
         $result = $stmt->fetch();
 

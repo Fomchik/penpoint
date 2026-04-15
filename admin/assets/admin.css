@@ -381,9 +381,41 @@ body {
     box-shadow: inset 0 0 0 1px #D55204;
 }
 
+.list {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 8px;
+}
+
+.list-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 10px;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    background: #fff;
+    color: var(--text);
+    cursor: pointer;
+    transition: border-color 0.2s ease, background 0.2s ease, color 0.2s ease;
+}
+
+.list-item.active {
+    border-color: #D55204;
+    background: #fff1e8;
+    color: #8d3300;
+    box-shadow: inset 0 0 0 1px rgba(213, 82, 4, 0.18);
+}
+
 .admin-variants {
     display: grid;
     gap: 16px;
+}
+
+.admin-variants__section-subtitle {
+    margin: 0 0 10px;
+    font-size: 16px;
 }
 
 .admin-variants__toolbar {
@@ -423,6 +455,151 @@ body {
     background: var(--brand-soft);
     color: var(--brand);
     font-size: 12px;
+}
+
+.admin-variants__catalog {
+    display: grid;
+    gap: 12px;
+}
+
+.admin-variants__catalog-list {
+    max-height: 420px;
+    overflow: auto;
+    padding-right: 4px;
+}
+
+.admin-variants__catalog-item {
+    text-align: left;
+    padding: 10px 12px;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    background: #fff;
+    cursor: pointer;
+    color: var(--text);
+}
+
+.admin-variants__catalog-item.is-selected {
+    border-color: #D55204;
+    background: #fff1e8;
+    color: #8d3300;
+}
+
+.admin-variants__catalog-add {
+    display: grid;
+    gap: 6px;
+}
+
+.admin-variants__search,
+.admin-variants__add-input,
+.admin-list__search {
+    width: 100%;
+}
+
+.admin-variants__parameter-list {
+    display: grid;
+    gap: 12px;
+}
+
+.admin-variants__parameter-row {
+    display: grid;
+    gap: 10px;
+    padding: 14px;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    background: #fff;
+}
+
+.admin-variants__parameter-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 12px;
+}
+
+.admin-variants__toggle {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.admin-variants__empty {
+    color: var(--muted);
+}
+
+.param-item {
+    align-items: center;
+    flex-wrap: wrap;
+}
+
+.param-item__title {
+    font-weight: 600;
+}
+
+.param-controls {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex: 1 1 420px;
+    justify-content: flex-end;
+}
+
+.param-control-input,
+.param-control-select {
+    min-width: 110px;
+    max-width: 160px;
+}
+
+.admin-variants__variant-list {
+    display: grid;
+    gap: 10px;
+}
+
+.admin-variants__variant-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 140px 140px;
+    gap: 12px;
+    align-items: center;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    background: #fff;
+    padding: 12px;
+}
+
+.admin-variants__variant-meta {
+    display: grid;
+    gap: 8px;
+}
+
+.admin-variants__variant-field {
+    display: grid;
+    gap: 6px;
+}
+
+.admin-list__box {
+    display: grid;
+    gap: 10px;
+}
+
+.admin-list__grid {
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+}
+
+.admin-list__item {
+    align-items: flex-start;
+}
+
+.admin-list__item-text {
+    display: grid;
+    gap: 4px;
+}
+
+.admin-list__item-note {
+    font-size: 12px;
+    color: var(--muted);
+}
+
+.admin-list__item.active .admin-list__item-note {
+    color: inherit;
 }
 
 .admin-grid-2 {
@@ -509,5 +686,16 @@ body {
     .admin-grid-2,
     .admin-form-grid {
         grid-template-columns: 1fr;
+    }
+
+    .param-controls,
+    .admin-variants__variant-row {
+        grid-template-columns: 1fr;
+        justify-content: stretch;
+    }
+
+    .param-control-input,
+    .param-control-select {
+        max-width: none;
     }
 }

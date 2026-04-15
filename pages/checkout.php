@@ -343,7 +343,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                             <div class="checkout-payment-panel__list">
                                 <label class="checkout-payment-option checkout-payment-option--active">
                                     <input type="radio" name="payment_provider" value="yookassa" checked>
-                                    <span class="checkout-payment-option__logo">YooKassa</span>
+                                    <span class="checkout-payment-option__logo"><img src="/assets/pay/logo-Ю.webp" alt="YooKassa" class="checkout-payment-option__logo-image"></span>
                                 </label>
                             </div>
                         </div>

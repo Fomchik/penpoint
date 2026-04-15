@@ -189,23 +189,35 @@ admin_render_header('Редактирование акции', 'promotions');
             <?php if ($currentImageList !== ''): ?><img class="admin-thumb admin-thumb-large" src="<?php echo admin_e($currentImageList); ?>" alt=""><?php endif; ?>
         </label>
 
-        <label class="admin-full" id="categories-field">Категории
-            <select name="category_ids[]" multiple size="8">
+        <div class="admin-full admin-list__box" id="categories-field">
+            <span class="admin-field-title">Категории</span>
+            <input type="text" class="admin-list__search" data-list-search placeholder="Поиск категорий">
+            <div class="list admin-list__grid" data-multi-picker>
                 <?php foreach ($categories as $category): ?>
-                    <option value="<?php echo admin_e((string)$category['id']); ?>" <?php echo in_array((int)$category['id'], $selectedCategories, true) ? 'selected' : ''; ?>><?php echo admin_e((string)$category['name']); ?></option>
+                    <?php $isSelected = in_array((int)$category['id'], $selectedCategories, true); ?>
+                    <div class="list-item admin-list__item <?php echo $isSelected ? 'active' : ''; ?>" data-picker-option data-input-id="promotion-category-<?php echo admin_e((string)$category['id']); ?>" data-filter-text="<?php echo admin_e(mb_strtolower((string)$category['name'])); ?>">
+                        <span class="admin-list__item-text">
+                            <span><?php echo admin_e((string)$category['name']); ?></span>
+                            <span class="admin-list__item-note">Категория</span>
+                        </span>
+                    </div>
+                    <input type="checkbox" class="admin-picker__input" id="promotion-category-<?php echo admin_e((string)$category['id']); ?>" name="category_ids[]" value="<?php echo admin_e((string)$category['id']); ?>" <?php echo $isSelected ? 'checked' : ''; ?>>
                 <?php endforeach; ?>
-            </select>
-        </label>
+            </div>
+        </div>
 
-        <div class="admin-full" id="products-field">
+        <div class="admin-full admin-list__box" id="products-field">
             <span class="admin-field-title">Товары</span>
-            <div class="admin-picker" data-multi-picker>
+            <input type="text" class="admin-list__search" data-list-search placeholder="Поиск товаров">
+            <div class="list admin-list__grid" data-multi-picker>
                 <?php foreach ($products as $product): ?>
                     <?php $isSelected = in_array((int)$product['id'], $selectedProducts, true); ?>
-                    <button type="button" class="admin-picker__item <?php echo $isSelected ? 'is-selected' : ''; ?>" data-picker-option data-input-id="promotion-product-<?php echo admin_e((string)$product['id']); ?>">
-                        <span>#<?php echo admin_e((string)$product['id']); ?></span>
-                        <span><?php echo admin_e((string)$product['name']); ?></span>
-                    </button>
+                    <div class="list-item admin-list__item <?php echo $isSelected ? 'active' : ''; ?>" data-picker-option data-input-id="promotion-product-<?php echo admin_e((string)$product['id']); ?>" data-filter-text="<?php echo admin_e(mb_strtolower((string)$product['name'] . ' #' . (string)$product['id'])); ?>">
+                        <span class="admin-list__item-text">
+                            <span>#<?php echo admin_e((string)$product['id']); ?> · <?php echo admin_e((string)$product['name']); ?></span>
+                            <span class="admin-list__item-note">Товар</span>
+                        </span>
+                    </div>
                     <input type="checkbox" class="admin-picker__input" id="promotion-product-<?php echo admin_e((string)$product['id']); ?>" name="product_ids[]" value="<?php echo admin_e((string)$product['id']); ?>" <?php echo $isSelected ? 'checked' : ''; ?>>
                 <?php endforeach; ?>
             </div>
@@ -238,14 +250,28 @@ admin_render_header('Редактирование акции', 'promotions');
     refresh();
 
     document.querySelectorAll('[data-multi-picker]').forEach(function (picker) {
-        picker.querySelectorAll('[data-picker-option]').forEach(function (button) {
-            button.addEventListener('click', function () {
-                const input = document.getElementById(button.getAttribute('data-input-id'));
+        picker.querySelectorAll('[data-picker-option]').forEach(function (item) {
+            item.addEventListener('click', function () {
+                const input = document.getElementById(item.getAttribute('data-input-id'));
                 if (!input) {
                     return;
                 }
                 input.checked = !input.checked;
-                button.classList.toggle('is-selected', input.checked);
+                item.classList.toggle('active', input.checked);
+            });
+        });
+    });
+
+    document.querySelectorAll('[data-list-search]').forEach(function (input) {
+        input.addEventListener('input', function () {
+            const query = String(input.value || '').trim().toLowerCase();
+            const field = input.closest('.admin-list__box');
+            if (!field) {
+                return;
+            }
+            field.querySelectorAll('[data-picker-option]').forEach(function (item) {
+                const text = String(item.getAttribute('data-filter-text') || '').toLowerCase();
+                item.style.display = query === '' || text.indexOf(query) !== -1 ? '' : 'none';
             });
         });
     });

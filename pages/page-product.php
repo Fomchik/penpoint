@@ -3,6 +3,7 @@ require_once __DIR__ . '/../includes/security.php';
 app_start_session();
 require_once __DIR__ . '/../includes/config.php';
 require_once __DIR__ . '/../includes/product_options.php';
+require_once __DIR__ . '/../includes/reviews.php';
 
 $product_id = isset($_GET['id']) ? (int)$_GET['id'] : 0;
 $product = $product_id ? get_product_by_id($product_id) : null;
@@ -21,9 +22,9 @@ $needs_color_panel = $product ? product_needs_color_panel($product['id']) : fals
 $product_options = $product ? get_product_options_for_product((int)$product['id']) : [];
 $product_images = $product ? app_fetch_product_images((int)$product['id']) : [];
 $initial_state = $product ? build_dynamic_product_state($product, [], $product_images) : [];
-
 $related_products = $product ? enrich_products_with_discounts(get_related_products($product['id'], 3)) : [];
-$can_leave_review = isset($_SESSION['user_id']);
+$reviews = $product ? reviews_fetch_product($pdo, (int)$product['id']) : [];
+$can_leave_review = isset($_SESSION['user_id']) && $product ? reviews_can_user_submit($pdo, (int)$product['id'], (int)$_SESSION['user_id']) : false;
 
 try {
     $stmt = $pdo->query('SELECT id, name, price FROM delivery_methods ORDER BY id ASC');
@@ -61,7 +62,8 @@ try {
             <section class="product-page"
                 data-product-page
                 data-product-id="<?php echo (int)$product['id']; ?>"
-                data-product-state-url="/api/product_state.php">
+                data-product-state-url="/api/product_state.php"
+                data-review-submit-url="/api/review_submit.php">
                 <div class="product-page__top">
                     <div class="product-page__gallery">
                         <?php if ($discount_percent): ?>
@@ -97,10 +99,6 @@ try {
                             <span class="product-page__reviews">(<?php echo (int)$rating['count']; ?>)</span>
                         </div>
 
-                        <?php if (!$can_leave_review): ?>
-                            <p>Отзывы могут оставлять только зарегистрированные пользователи.</p>
-                        <?php endif; ?>
-
                         <?php if ($needs_color_panel && !empty($colors)): ?>
                             <div class="product-page__options">
                                 <div class="product-page__option">
@@ -120,40 +118,32 @@ try {
                             </div>
                         <?php endif; ?>
 
-                        <?php if (!empty($product_options)): ?>
-                            <div class="product-page__options" data-product-options>
-                                <?php foreach ($product_options as $option): ?>
-                                    <div class="product-page__option">
-                                        <div class="product-page__option-label"><?php echo htmlspecialchars((string)$option['label']); ?></div>
-                                        <?php if (($option['ui'] ?? 'buttons') === 'select'): ?>
-                                            <select class="product-page__select" data-option-code="<?php echo htmlspecialchars((string)$option['code'], ENT_QUOTES, 'UTF-8'); ?>">
-                                                <option value="">Выберите</option>
-                                                <?php foreach ((array)$option['values'] as $value): ?>
-                                                    <option value="<?php echo htmlspecialchars((string)$value, ENT_QUOTES, 'UTF-8'); ?>"><?php echo htmlspecialchars((string)$value); ?></option>
-                                                <?php endforeach; ?>
-                                            </select>
-                                        <?php else: ?>
-                                            <div class="product-page__chips">
-                                                <?php foreach ((array)$option['values'] as $value): ?>
-                                                    <button
-                                                        type="button"
-                                                        class="product-page__chip"
-                                                        data-option-code="<?php echo htmlspecialchars((string)$option['code'], ENT_QUOTES, 'UTF-8'); ?>"
-                                                        data-option-value="<?php echo htmlspecialchars((string)$value, ENT_QUOTES, 'UTF-8'); ?>">
-                                                        <?php echo htmlspecialchars((string)$value); ?>
-                                                    </button>
-                                                <?php endforeach; ?>
-                                            </div>
-                                        <?php endif; ?>
-                                    </div>
-                                <?php endforeach; ?>
-                            </div>
-                        <?php endif; ?>
-
                         <div class="product-page__stock">
                             <span class="product-page__stock-indicator"></span>
                             <span>В наличии: <b data-product-stock><?php echo (int)$initial_state['stock']; ?> шт</b></span>
                         </div>
+
+                        <?php if (!empty($product_options)): ?>
+                            <div class="product-page__options product-page__options--variants" data-product-options>
+                                <?php foreach ($product_options as $option): ?>
+                                    <div class="product-page__option">
+                                        <div class="product-page__option-label"><?php echo htmlspecialchars((string)$option['label']); ?></div>
+                                        <div class="product-page__variant-list">
+                                            <?php foreach ((array)$option['values'] as $index => $value): ?>
+                                                <div
+                                                    class="product-page__variant-option <?php echo $index === 0 ? 'is-active' : ''; ?>"
+                                                    data-option-code="<?php echo htmlspecialchars((string)$option['code'], ENT_QUOTES, 'UTF-8'); ?>"
+                                                    data-option-value="<?php echo htmlspecialchars((string)$value, ENT_QUOTES, 'UTF-8'); ?>"
+                                                    tabindex="0"
+                                                    role="button">
+                                                    <?php echo htmlspecialchars((string)$value); ?>
+                                                </div>
+                                            <?php endforeach; ?>
+                                        </div>
+                                    </div>
+                                <?php endforeach; ?>
+                            </div>
+                        <?php endif; ?>
 
                         <div class="product-page__buy">
                             <div class="product-page__qty">
@@ -173,16 +163,18 @@ try {
                                 В корзину
                             </button>
 
-                            <button type="button" class="product-page__share" aria-label="Поделиться">
+                            <button type="button" class="product-page__share" aria-label="Поделиться" data-share-button>
                                 <img src="/assets/icons/share-icon.svg" alt="" class="product-page__share-icon">
                             </button>
                         </div>
+                        <div class="product-page__share-notice" data-share-notice>Ссылка скопирована</div>
 
                         <div class="product-page__tabs">
                             <div class="product-page__tab-header">
                                 <button type="button" class="product-page__tab product-page__tab--active" data-tab="description">Описание</button>
                                 <button type="button" class="product-page__tab" data-tab="specs">Характеристики</button>
                                 <button type="button" class="product-page__tab" data-tab="delivery">Доставка</button>
+                                <button type="button" class="product-page__tab" data-tab="reviews">Отзывы</button>
                             </div>
                             <div class="product-page__tab-body">
                                 <div class="product-page__tab-content product-page__tab-content--active" data-content="description">
@@ -218,6 +210,58 @@ try {
                                             </li>
                                         <?php endforeach; ?>
                                     </ul>
+                                </div>
+                                <div class="product-page__tab-content" data-content="reviews">
+                                    <div class="product-reviews" data-product-reviews>
+                                        <div class="product-reviews__summary">
+                                            <strong>Средняя оценка: <?php echo htmlspecialchars(number_format((float)$rating['rating'], 1, '.', ''), ENT_QUOTES, 'UTF-8'); ?></strong>
+                                            <span>Всего отзывов: <?php echo (int)$rating['count']; ?></span>
+                                        </div>
+                                        <?php if (isset($_SESSION['user_id'])): ?>
+                                            <form class="product-reviews__form<?php echo $can_leave_review ? '' : ' product-reviews__form--disabled'; ?>" data-review-form>
+                                                <?php echo app_csrf_input(); ?>
+                                                <input type="hidden" name="product_id" value="<?php echo (int)$product['id']; ?>">
+                                                <input type="hidden" name="rating" value="0" data-review-rating-input>
+                                                <div class="product-reviews__stars" data-review-stars>
+                                                    <?php for ($i = 1; $i <= 5; $i++): ?>
+                                                        <button type="button" class="product-reviews__star" data-rating-value="<?php echo $i; ?>" aria-label="Оценка <?php echo $i; ?>">
+                                                            <img src="/assets/icons/star.svg" alt="" width="20" height="20">
+                                                        </button>
+                                                    <?php endfor; ?>
+                                                </div>
+                                                <label class="product-reviews__field">
+                                                    <span>Комментарий</span>
+                                                    <textarea name="comment" rows="4" maxlength="1000" <?php echo $can_leave_review ? '' : 'disabled'; ?> required></textarea>
+                                                </label>
+                                                <div class="product-reviews__notice" data-review-message>
+                                                    <?php echo $can_leave_review ? 'Оставьте оценку и комментарий.' : 'Отзыв можно оставить только после получения заказа с этим товаром. Повторный отзыв не допускается.'; ?>
+                                                </div>
+                                                <button type="submit" class="product-reviews__submit" <?php echo $can_leave_review ? '' : 'disabled'; ?>>Отправить отзыв</button>
+                                            </form>
+                                        <?php endif; ?>
+                                        <div class="product-reviews__list" data-review-list>
+                                            <?php if ($reviews === []): ?>
+                                                <div class="product-reviews__empty">Пока нет отзывов.</div>
+                                            <?php else: ?>
+                                                <?php foreach ($reviews as $review): ?>
+                                                    <article class="product-review">
+                                                        <div class="product-review__head">
+                                                            <strong><?php echo htmlspecialchars((string)$review['user_name'], ENT_QUOTES, 'UTF-8'); ?></strong>
+                                                            <span><?php echo htmlspecialchars((string)$review['created_at_formatted'], ENT_QUOTES, 'UTF-8'); ?></span>
+                                                        </div>
+                                                        <div class="product-review__rating">
+                                                            <?php for ($i = 1; $i <= 5; $i++): ?>
+                                                                <span class="product-review__star<?php echo $i <= (int)$review['rating'] ? ' is-active' : ''; ?>">
+                                                                    <img src="/assets/icons/star.svg" alt="" width="16" height="16">
+                                                                </span>
+                                                            <?php endfor; ?>
+                                                        </div>
+                                                        <div class="product-review__text"><?php echo nl2br(htmlspecialchars((string)$review['comment'], ENT_QUOTES, 'UTF-8')); ?></div>
+                                                    </article>
+                                                <?php endforeach; ?>
+                                            <?php endif; ?>
+                                        </div>
+                                    </div>
                                 </div>
                             </div>
                         </div>

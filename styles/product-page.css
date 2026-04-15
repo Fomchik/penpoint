@@ -133,7 +133,7 @@
 
 .product-page__buy {
     display: grid;
-    grid-template-columns: 100px 1fr 44px;
+    grid-template-columns: 112px minmax(180px, 240px) 44px;
     gap: 12px;
     align-items: center;
     margin-bottom: 18px;
@@ -177,14 +177,14 @@
 }
 
 .product-page__add-to-cart {
-    height: 36px;
-    padding: 0 16px;
+    height: 44px;
+    padding: 0 18px;
     border-radius: 8px;
 }
 
 .product-page__share {
-    width: 36px;
-    height: 36px;
+    width: 44px;
+    height: 44px;
     border-radius: 6px;
     border: 1px solid #eee;
     background: #fff;
@@ -198,6 +198,56 @@
     width: 20px;
     height: 20px;
     display: block;
+}
+
+.product-page__share-notice {
+    opacity: 0;
+    transform: translateY(-4px);
+    transition: opacity 0.2s ease, transform 0.2s ease;
+    color: #D55204;
+    font-weight: 600;
+    min-height: 20px;
+    margin-bottom: 18px;
+}
+
+.product-page__share-notice.is-visible {
+    opacity: 1;
+    transform: translateY(0);
+}
+
+.product-page__options--variants {
+    margin-bottom: 18px;
+}
+
+.product-page__variant-list {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.product-page__variant-option {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 52px;
+    width: min(240px, 100%);
+    padding: 0 20px;
+    border: 1px solid #e5e5e5;
+    border-radius: 999px;
+    background: #f4f4f4;
+    color: #2e2e2e;
+    font-size: 1.375rem;
+    font-weight: 600;
+    cursor: pointer;
+    user-select: none;
+    transition: border-color 0.2s ease, color 0.2s ease, background 0.2s ease;
+}
+
+.product-page__variant-option.is-active {
+    background: #fff6ef;
+    border-color: #D55204;
+    color: #1f1f1f;
+    box-shadow: inset 0 0 0 1px rgba(213, 82, 4, 0.2);
 }
 
 .product-page__tabs {
@@ -251,6 +301,128 @@
     display: block;
 }
 
+.product-reviews {
+    display: grid;
+    gap: 18px;
+}
+
+.product-reviews__summary {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    color: #555;
+}
+
+.product-reviews__form {
+    display: grid;
+    gap: 14px;
+    padding: 18px;
+    border: 1px solid #eee;
+    border-radius: 12px;
+    background: #faf8f6;
+}
+
+.product-reviews__form--disabled {
+    opacity: 0.75;
+}
+
+.product-reviews__stars {
+    display: flex;
+    gap: 8px;
+}
+
+.product-reviews__star {
+    width: 40px;
+    height: 40px;
+    border: none;
+    background: transparent;
+    cursor: pointer;
+    padding: 0;
+    opacity: 0.35;
+}
+
+.product-reviews__star.is-active {
+    opacity: 1;
+}
+
+.product-reviews__field {
+    display: grid;
+    gap: 8px;
+}
+
+.product-reviews__field textarea {
+    width: 100%;
+    border: 1px solid #ddd;
+    border-radius: 12px;
+    padding: 12px 14px;
+    resize: vertical;
+    min-height: 120px;
+}
+
+.product-reviews__notice {
+    color: #666;
+    font-size: 0.95rem;
+}
+
+.product-reviews__submit {
+    min-height: 44px;
+    padding: 0 18px;
+    border: none;
+    border-radius: 8px;
+    background: #D55204;
+    color: #fff;
+    font-weight: 600;
+    cursor: pointer;
+    width: fit-content;
+}
+
+.product-reviews__list {
+    display: grid;
+    gap: 14px;
+}
+
+.product-reviews__empty {
+    color: #666;
+}
+
+.product-review {
+    border: 1px solid #eee;
+    border-radius: 12px;
+    padding: 16px;
+    background: #fff;
+}
+
+.product-review__head {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 10px;
+}
+
+.product-review__head span {
+    color: #777;
+    font-size: 0.95rem;
+}
+
+.product-review__rating {
+    display: flex;
+    gap: 4px;
+    margin-bottom: 10px;
+}
+
+.product-review__star {
+    opacity: 0.35;
+}
+
+.product-review__star.is-active {
+    opacity: 1;
+}
+
+.product-review__text {
+    color: #2e2e2e;
+    line-height: 1.6;
+}
+
 .product-page__also-buy {
     margin-top: 64px;
 }
@@ -278,6 +450,14 @@
 @media (max-width: 768px) {
     .product-page__top {
         grid-template-columns: 1fr;
+    }
+
+    .product-page__buy {
+        grid-template-columns: 1fr;
+    }
+
+    .product-page__variant-option {
+        width: 100%;
     }
 
     .product-page__also-buy-grid {
