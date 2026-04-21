@@ -17,16 +17,19 @@ $category_ids = [];
 if (isset($_GET['category']) && is_array($_GET['category'])) {
     foreach ($_GET['category'] as $cid) {
         $cid = (int)$cid;
-        if ($cid > 0) {
-            $category_ids[$cid] = $cid;
-        }
+        if ($cid > 0) $category_ids[$cid] = $cid;
     }
 }
 $category_ids = array_values($category_ids);
 
+$allowed_sorts = ['new', 'price_asc', 'price_desc', 'rating_desc', 'rating_asc'];
+if (!in_array($sort, $allowed_sorts, true)) $sort = 'new';
+
 $order_by = 'p.created_at DESC';
-if ($sort === 'price_asc') $order_by = 'p.final_price ASC';
-if ($sort === 'price_desc') $order_by = 'p.final_price DESC';
+if ($sort === 'price_asc') $order_by = 'p.final_price ASC, p.created_at DESC';
+if ($sort === 'price_desc') $order_by = 'p.final_price DESC, p.created_at DESC';
+if ($sort === 'rating_desc') $order_by = 'COALESCE(p.rating, 0) DESC, p.created_at DESC';
+if ($sort === 'rating_asc') $order_by = 'COALESCE(p.rating, 0) ASC, p.created_at DESC';
 
 $where = ['p.is_active = 1'];
 $params = [];
@@ -34,8 +37,7 @@ $params = [];
 if ($q !== '') {
     $where[] = '(p.name LIKE ? OR p.description LIKE ?)';
     $like = '%' . $q . '%';
-    $params[] = $like;
-    $params[] = $like;
+    $params[] = $like; $params[] = $like;
 }
 if ($min_price !== null) {
     $where[] = 'p.final_price >= ?';
@@ -50,12 +52,8 @@ if ($category_ids !== []) {
     $where[] = "p.category_id IN ($placeholders)";
     $params = array_merge($params, $category_ids);
 }
-if ($pickup_only) {
-    $where[] = '(p.pickup_available IS NULL OR p.pickup_available = 1)';
-}
-if ($sale_only) {
-    $where[] = 'p.discount_percent > 0';
-}
+if ($pickup_only) $where[] = 'p.pickup_available = 1 AND p.stock_quantity > 0';
+if ($sale_only) $where[] = 'p.discount_percent > 0';
 
 $where_sql = implode(' AND ', $where);
 $stmt_total = $pdo->prepare("SELECT COUNT(*) AS cnt FROM v_product_pricing p WHERE $where_sql");
@@ -84,34 +82,27 @@ try {
     foreach ($stmt_cat_counts->fetchAll() ?: [] as $row) {
         $category_counts[(int)$row['category_id']] = (int)$row['cnt'];
     }
-} catch (Throwable $e) {
-    error_log('Catalog category counts error: ' . $e->getMessage());
-}
+} catch (Throwable $e) { error_log($e->getMessage()); }
 
 $pickup_total = 0;
 try {
-    $stmt_pickup = $pdo->query('SELECT COUNT(*) AS cnt FROM products WHERE is_active = 1 AND (pickup_available IS NULL OR pickup_available = 1)');
+    $stmt_pickup = $pdo->query('SELECT COUNT(*) AS cnt FROM v_product_pricing WHERE is_active = 1 AND pickup_available = 1 AND stock_quantity > 0');
     $pickup_total = (int)($stmt_pickup->fetch()['cnt'] ?? 0);
-} catch (Throwable $e) {
-    error_log('Catalog pickup count error: ' . $e->getMessage());
-}
+} catch (Throwable $e) { error_log($e->getMessage()); }
 
 $is_ajax = !empty($_SERVER['HTTP_X_REQUESTED_WITH']) && strtolower((string)$_SERVER['HTTP_X_REQUESTED_WITH']) === 'xmlhttprequest';
+if ($is_ajax) ob_clean();
 
-function build_query(array $overrides = []): string
-{
+function build_query(array $overrides = []): string {
     $query = $_GET;
     foreach ($overrides as $key => $value) {
-        if ($value === null) {
-            unset($query[$key]);
-        } else {
-            $query[$key] = $value;
-        }
+        if ($value === null) unset($query[$key]);
+        else $query[$key] = $value;
     }
     return http_build_query($query);
 }
-?>
-<?php if (!$is_ajax): ?>
+
+if (!$is_ajax): ?>
 <!DOCTYPE html>
 <html lang="ru">
 <head>
@@ -176,9 +167,11 @@ function build_query(array $overrides = []): string
 
     <section class="catalog__content" id="catalog-content">
         <div class="catalog__toolbar">
-            <form method="get" class="catalog__sort" id="catalog-sort-form">
+            <form method="get" class="catalog__sort" id="catalog-sort-form" action="/pages/catalog.php">
                 <select name="sort" class="catalog__sort-select">
                     <option value="new" <?php echo $sort === 'new' ? 'selected' : ''; ?>>Новинки</option>
+                    <option value="rating_desc" <?php echo $sort === 'rating_desc' ? 'selected' : ''; ?>>Популярные (по рейтингу)</option>
+                    <option value="rating_asc" <?php echo $sort === 'rating_asc' ? 'selected' : ''; ?>>Низкий рейтинг</option>
                     <option value="price_asc" <?php echo $sort === 'price_asc' ? 'selected' : ''; ?>>Цена: по возрастанию</option>
                     <option value="price_desc" <?php echo $sort === 'price_desc' ? 'selected' : ''; ?>>Цена: по убыванию</option>
                 </select>
@@ -195,23 +188,24 @@ function build_query(array $overrides = []): string
                 $discount = (int)($product['discount_percent'] ?? 0);
                 $old = (float)($product['price_old'] ?? $product['price']);
                 $new = (float)$product['price'];
+                $ts = strtotime($product['created_at'] ?? 'now');
                 ?>
-                <article class="product-card">
+                <article class="product-card" data-price="<?php echo $new; ?>" data-rating="<?php echo $rating_value; ?>" data-created="<?php echo $ts; ?>">
                     <?php if ($discount): ?><span class="product-card__badge product-card__badge--discount"><?php echo $discount; ?>%</span><?php endif; ?>
-                    <button type="button" class="product-card__wishlist" aria-label="В избранное" data-product-id="<?php echo $pid; ?>">
+                    <button type="button" class="product-card__wishlist" data-product-id="<?php echo $pid; ?>">
                         <img src="/assets/icons/heart.svg" alt="" class="product-card__wishlist-icon">
                     </button>
                     <a href="/pages/page-product.php?id=<?php echo $pid; ?>" class="product-card__link">
-                        <img src="<?php echo htmlspecialchars($img); ?>" alt="<?php echo htmlspecialchars((string)$product['name']); ?>" class="product-card__image" loading="lazy">
+                        <img src="<?php echo htmlspecialchars($img); ?>" alt="" class="product-card__image" loading="lazy">
                     </a>
                     <h4 class="product-card__name"><a href="/pages/page-product.php?id=<?php echo $pid; ?>"><?php echo htmlspecialchars((string)$product['name']); ?></a></h4>
                     <div class="product-card__rating">
-                        <span class="product-card__stars" aria-label="Рейтинг: <?php echo $rating_value; ?> из 5">
+                        <span class="product-card__stars">
                             <?php for ($i = 1; $i <= 5; $i++): ?>
-                                <?php $fill_percent = (int)round(max(0, min(1, $rating_value - ($i - 1))) * 100); ?>
-                                <span class="star" aria-hidden="true">
+                                <?php $fill = (int)round(max(0, min(1, $rating_value - ($i - 1))) * 100); ?>
+                                <span class="star">
                                     <img src="/assets/icons/star.svg" alt="" class="star__bg" width="16" height="16">
-                                    <span class="star__fg" style="width: <?php echo $fill_percent; ?>%;">
+                                    <span class="star__fg" style="width: <?php echo $fill; ?>%;">
                                         <img src="/assets/icons/star.svg" alt="" class="star__img" width="16" height="16">
                                     </span>
                                 </span>
@@ -223,7 +217,7 @@ function build_query(array $overrides = []): string
                         <?php if ($discount): ?><span class="product-card__price--old"><?php echo format_price($old); ?></span><?php endif; ?>
                         <span class="product-card__price--new"><?php echo format_price($new); ?></span>
                     </div>
-                    <button type="button" class="product-card__add-to-cart" data-product-id="<?php echo $pid; ?>" data-product-name="<?php echo htmlspecialchars((string)$product['name'], ENT_QUOTES, 'UTF-8'); ?>" data-product-price="<?php echo $new; ?>" data-product-old-price="<?php echo $old; ?>">
+                    <button type="button" class="product-card__add-to-cart" data-product-id="<?php echo $pid; ?>" data-product-name="<?php echo htmlspecialchars((string)$product['name'], ENT_QUOTES, 'UTF-8'); ?>" data-product-price="<?php echo $new; ?>">
                         <img src="/assets/icons/cart.svg" alt="" class="product-card__add-to-cart-icon" width="18" height="18">В корзину
                     </button>
                 </article>
@@ -232,9 +226,9 @@ function build_query(array $overrides = []): string
 
         <div class="catalog__pagination">
             <?php if ($page > 1): ?>
-                <a class="catalog__page-nav catalog__page-nav--prev" href="/pages/catalog.php?<?php echo htmlspecialchars(build_query(['page' => $page - 1])); ?>" aria-label="Предыдущая страница"><img src="/assets/icons/arrow.svg" alt="" aria-hidden="true"></a>
+                <a class="catalog__page-nav catalog__page-nav--prev" href="/pages/catalog.php?<?php echo htmlspecialchars(build_query(['page' => $page - 1])); ?>"><img src="/assets/icons/arrow.svg" alt=""></a>
             <?php else: ?>
-                <span class="catalog__page-nav catalog__page-nav--prev catalog__page-nav--disabled" aria-hidden="true"><img src="/assets/icons/arrow.svg" alt=""></span>
+                <span class="catalog__page-nav catalog__page-nav--prev catalog__page-nav--disabled"><img src="/assets/icons/arrow.svg" alt=""></span>
             <?php endif; ?>
 
             <?php for ($p = 1; $p <= $pages; $p++): ?>
@@ -242,17 +236,17 @@ function build_query(array $overrides = []): string
             <?php endfor; ?>
 
             <?php if ($page < $pages): ?>
-                <a class="catalog__page-nav catalog__page-nav--next" href="/pages/catalog.php?<?php echo htmlspecialchars(build_query(['page' => $page + 1])); ?>" aria-label="Следующая страница"><img src="/assets/icons/arrow.svg" alt="" aria-hidden="true"></a>
+                <a class="catalog__page-nav catalog__page-nav--next" href="/pages/catalog.php?<?php echo htmlspecialchars(build_query(['page' => $page + 1])); ?>"><img src="/assets/icons/arrow.svg" alt=""></a>
             <?php else: ?>
-                <span class="catalog__page-nav catalog__page-nav--next catalog__page-nav--disabled" aria-hidden="true"><img src="/assets/icons/arrow.svg" alt=""></span>
+                <span class="catalog__page-nav catalog__page-nav--next catalog__page-nav--disabled"><img src="/assets/icons/arrow.svg" alt=""></span>
             <?php endif; ?>
         </div>
     </section>
+
 <?php if (!$is_ajax): ?>
 </main>
 <?php include __DIR__ . '/../includes/footer.php'; ?>
 <script src="/scripts/catalog-filters.js"></script>
 </body>
 </html>
-<?php endif; ?>
-<?php if ($is_ajax) exit; ?>
+<?php else: exit; endif; ?>

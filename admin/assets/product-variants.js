@@ -1,422 +1,355 @@
 (function () {
-  'use strict';
-
-  const DEFAULT_UNITS = ['шт', 'кг', 'г', 'л', 'мл', 'м', 'см', 'мм', 'лист', 'набор', 'уп', 'Нет'];
-
-  function parseData(root, name, fallback) {
-    const raw = root.getAttribute(name) || '';
-    if (!raw) return fallback;
-    try {
-      const parsed = JSON.parse(raw);
-      return parsed || fallback;
-    } catch (error) {
-      return fallback;
-    }
-  }
+  "use strict";
 
   function escapeHtml(value) {
-    return String(value || '')
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;')
-      .replace(/"/g, '&quot;')
-      .replace(/'/g, '&#039;');
+    return String(value || "")
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/\"/g, "&quot;")
+      .replace(/'/g, "&#039;");
   }
 
-  function normalizeName(value) {
-    return String(value || '').trim().toLowerCase();
-  }
-
-  function parseValuesText(text) {
-    return String(text || '')
-      .split(/[\r\n,]+/)
-      .map(function (value) { return value.trim(); })
-      .filter(Boolean);
-  }
-
-  function splitValueAndUnit(text) {
-    const normalized = String(text || '').trim();
-    if (!normalized) {
-      return { value: '', unit: 'шт' };
+  function getValueWord(count) {
+    if (count % 10 === 1 && count % 100 !== 11) return "значение";
+    if (
+      count % 10 >= 2 &&
+      count % 10 <= 4 &&
+      (count % 100 < 10 || count % 100 >= 20)
+    ) {
+      return "значения";
     }
+    return "значений";
+  }
 
-    const match = normalized.match(/^(.+?)\s+([^\s]+)$/u);
-    if (!match) {
-      return { value: normalized, unit: 'шт' };
-    }
+  function normalizeParam(raw) {
+    const param = raw && typeof raw === "object" ? raw : {};
+    const values = Array.isArray(param.values) ? param.values : [];
 
     return {
-      value: match[1].trim(),
-      unit: match[2].trim() || 'шт'
+      name: String(param.name || ""),
+      values:
+        values.length > 0
+          ? values.map((item) => ({
+              name: String(item.name || ""),
+              price: item.price ?? "",
+              stock: item.stock ?? "",
+              image_url: String(item.image_url || item.image_path || ""),
+              image_preview: String(item.image_url || item.image_path || ""),
+              image_file: null,
+            }))
+          : [{ name: "", price: "", stock: "", image_url: "", image_preview: "", image_file: null }],
     };
   }
 
-  function valueLabel(row) {
-    const value = String(row.value || '').trim();
-    const unit = String(row.unit || '').trim();
-    if (!value || unit === 'Нет') {
-      return '';
-    }
-    return unit ? (value + ' ' + unit) : value;
-  }
+  function createValueRow(param, pIdx, vIdx, onRemove) {
+    const val = param.values[vIdx];
+    const row = document.createElement("div");
+    row.className = "admin-value-row";
 
-  function rowKey(name, label) {
-    return normalizeName(name) + '::' + normalizeName(label);
-  }
+    row.innerHTML = `
+      <div class="admin-value-image">
+        <label class="admin-image-upload-zone">
+          ${
+            (val.image_preview || val.image_url)
+              ? `<img src="${escapeHtml(val.image_preview || val.image_url)}" alt="">`
+              : `<span class="admin-upload-placeholder">+</span>`
+          }
+          <input
+            type="file"
+            name="product_parameters[${pIdx}][values][${vIdx}][image]"
+            accept="image/jpeg,image/png,image/webp"
+            data-image-input
+          >
+          <input
+            type="hidden"
+            name="product_parameters[${pIdx}][values][${vIdx}][image_path]"
+            value="${escapeHtml(val.image_url || '')}"
+            data-image-path-input
+          >
+        </label>
+      </div>
+      <div class="admin-value-name">
+        <input
+          type="text"
+          name="product_parameters[${pIdx}][values][${vIdx}][name]"
+          value="${escapeHtml(val.name)}"
+          placeholder="Например: Royal Blue"
+          class="admin-value-input"
+        >
+      </div>
+      <div class="admin-value-price">
+        <input
+          type="number"
+          name="product_parameters[${pIdx}][values][${vIdx}][price]"
+          value="${escapeHtml(val.price)}"
+          step="0.01"
+          placeholder="0"
+          class="admin-value-input"
+        >
+      </div>
+      <div class="admin-value-stock">
+        <input
+          type="number"
+          name="product_parameters[${pIdx}][values][${vIdx}][stock]"
+          value="${escapeHtml(val.stock)}"
+          min="0"
+          placeholder="0"
+          class="admin-value-input"
+        >
+      </div>
+      <div class="admin-value-action">
+        <button
+          type="button"
+          class="admin-value-delete-btn"
+          data-remove-value
+          title="Удалить значение"
+          aria-label="Удалить значение"
+        >
+          ×
+        </button>
+      </div>
+    `;
 
-  function render(root) {
-    const createUrl = root.getAttribute('data-attribute-create-url') || '';
-    const csrfToken = root.getAttribute('data-csrf-token') || '';
-    const parametersContainer = root.querySelector('[data-parameters]');
-    const form = root.closest('form');
+    const nameInput = row.querySelector('.admin-value-name input');
+    const priceInput = row.querySelector('.admin-value-price input');
+    const stockInput = row.querySelector('.admin-value-stock input');
 
-    if (!parametersContainer) {
-      return;
-    }
+    nameInput.addEventListener("input", () => {
+      val.name = nameInput.value;
+    });
+    priceInput.addEventListener("input", () => {
+      val.price = priceInput.value;
+    });
+    stockInput.addEventListener("input", () => {
+      val.stock = stockInput.value;
+    });
 
-    let catalog = parseData(root, 'data-parameter-catalog', []).map(function (item) {
-      return String(item || '').trim();
-    }).filter(Boolean);
-
-    const initialParameters = parseData(root, 'data-initial-parameters', []);
-    const initialVariants = parseData(root, 'data-initial-variants', []);
-    const variantMap = {};
-
-    initialVariants.forEach(function (variant) {
-      const attrs = variant && variant.attributes ? variant.attributes : {};
-      const names = Object.keys(attrs);
-      if (!names.length) {
-        return;
+    const fileInput = row.querySelector("[data-image-input]");
+    if (val.image_file && typeof DataTransfer !== "undefined") {
+      try {
+        const transfer = new DataTransfer();
+        transfer.items.add(val.image_file);
+        fileInput.files = transfer.files;
+      } catch (error) {
+        console.warn("Cannot restore selected file for value row:", error);
       }
-      const name = names[0];
-      const label = String(attrs[name] || '').trim();
-      if (!name || !label) {
-        return;
-      }
-      variantMap[rowKey(name, label)] = {
-        price: variant.price === null || variant.price === undefined ? '' : String(variant.price),
-        stock_quantity: Number(variant.stock_quantity || 0)
+    }
+
+    fileInput.addEventListener("change", (event) => {
+      const file = event.target.files && event.target.files[0];
+      if (!file) return;
+      val.image_file = file;
+
+      const reader = new FileReader();
+      reader.onload = (loadEvent) => {
+        const src = String((loadEvent.target && loadEvent.target.result) || "");
+        if (!src) return;
+        val.image_preview = src;
+        const zone = row.querySelector(".admin-image-upload-zone");
+        const preview = zone.querySelector("img");
+        const placeholder = zone.querySelector(".admin-upload-placeholder");
+
+        if (placeholder) {
+          placeholder.remove();
+        }
+
+        if (preview) {
+          preview.src = src;
+        } else {
+          const img = document.createElement("img");
+          img.src = src;
+          img.alt = "";
+          zone.insertBefore(img, fileInput);
+        }
       };
+      reader.readAsDataURL(file);
     });
 
-    const rows = [];
-    initialParameters.forEach(function (parameter) {
-      const values = parseValuesText(parameter.values_text || (Array.isArray(parameter.values) ? parameter.values.join('\n') : ''));
-      const prepared = values.length ? values : [''];
-      prepared.forEach(function (item) {
-        const parts = splitValueAndUnit(item);
-        const label = parts.unit === 'Нет' ? '' : valueLabel(parts);
-        const key = rowKey(parameter.name, label);
-        const variantData = variantMap[key] || { price: '', stock_quantity: 0 };
-        rows.push({
-          id: parameter.id || '',
-          name: String(parameter.name || '').trim(),
-          value: parts.value,
-          unit: parts.unit || 'шт',
-          price: variantData.price,
-          stock_quantity: variantData.stock_quantity,
-          use_for_variants: Number(parameter.use_for_variants || 0) === 1
+    row.querySelector("[data-remove-value]").addEventListener("click", onRemove);
+
+    return row;
+  }
+
+  function createParamCard(pIdx, param, onParamRemove, onParamChanged, isInitiallyExpanded) {
+    const card = document.createElement("div");
+    card.className = "admin-param-card";
+
+    card.innerHTML = `
+      <div class="admin-param-composite">
+        <div class="admin-param-sidebar" data-accordion-trigger role="button" aria-expanded="false">
+          <div class="admin-param-sidebar-top">
+            <span class="accordion-icon" aria-hidden="true"></span>
+            <input
+              type="text"
+              name="product_parameters[${pIdx}][name]"
+              value="${escapeHtml(param.name)}"
+              placeholder="Название параметра"
+              class="admin-param-name-input"
+            >
+          </div>
+          <button
+            type="button"
+            class="admin-param-delete-btn"
+            data-remove-param
+            title="Удалить группу"
+          >
+            Удалить группу
+          </button>
+        </div>
+
+        <div class="admin-param-content">
+          <div class="admin-param-values-header">
+            <div class="admin-values-grid-header">
+              <div class="admin-col-image"></div>
+              <div class="admin-col-name">Значение</div>
+              <div class="admin-col-price">Цена</div>
+              <div class="admin-col-stock">Остаток</div>
+              <div class="admin-col-action"></div>
+            </div>
+          </div>
+          <div class="admin-param-values-list" data-values-container></div>
+          <div class="admin-param-footer">
+            <button type="button" class="admin-add-value-btn" data-add-value>+ Добавить значение</button>
+            <span class="admin-values-counter" data-count-badge></span>
+          </div>
+        </div>
+      </div>
+    `;
+
+    const sidebar = card.querySelector("[data-accordion-trigger]");
+    const paramNameInput = card.querySelector(".admin-param-name-input");
+    const valuesContainer = card.querySelector("[data-values-container]");
+    const countBadge = card.querySelector("[data-count-badge]");
+
+    const setExpanded = (expanded) => {
+      card.classList.toggle("is-expanded", expanded);
+      sidebar.setAttribute("aria-expanded", expanded ? "true" : "false");
+    };
+
+    setExpanded(Boolean(isInitiallyExpanded));
+
+    sidebar.addEventListener("click", (event) => {
+      if (event.target.closest("input") || event.target.closest("button")) return;
+      setExpanded(!card.classList.contains("is-expanded"));
+    });
+
+    paramNameInput.addEventListener("input", () => {
+      param.name = paramNameInput.value;
+    });
+
+    const renderValues = () => {
+      valuesContainer.innerHTML = "";
+      countBadge.textContent = `${param.values.length} ${getValueWord(param.values.length)}`;
+
+      param.values.forEach((_, vIdx) => {
+        const row = createValueRow(param, pIdx, vIdx, () => {
+          param.values.splice(vIdx, 1);
+          renderValues();
+          onParamChanged();
+        });
+        valuesContainer.appendChild(row);
+      });
+    };
+
+    card.querySelector("[data-add-value]").addEventListener("click", () => {
+      param.values.push({ name: "", price: "", stock: "", image_url: "", image_preview: "", image_file: null });
+      renderValues();
+      setExpanded(true);
+      onParamChanged();
+    });
+
+    card.querySelector("[data-remove-param]").addEventListener("click", () => {
+      onParamRemove();
+      card.remove();
+      onParamChanged();
+    });
+
+    renderValues();
+    return card;
+  }
+
+  function reindexParameterNames(container) {
+    const cards = container.querySelectorAll(".admin-param-card");
+
+    cards.forEach((card, pIdx) => {
+      card.querySelectorAll('[name^="product_parameters["]').forEach((field) => {
+        const original = field.getAttribute("name") || "";
+        const withParam = original.replace(
+          /product_parameters\[\d+\]/,
+          `product_parameters[${pIdx}]`,
+        );
+        field.setAttribute("name", withParam);
+      });
+
+      card.querySelectorAll(".admin-value-row").forEach((row, vIdx) => {
+        row.querySelectorAll('[name^="product_parameters["]').forEach((field) => {
+          const original = field.getAttribute("name") || "";
+          const next = original
+            .replace(/product_parameters\[\d+\]/, `product_parameters[${pIdx}]`)
+            .replace(/\[values\]\[\d+\]/, `[values][${vIdx}]`);
+          field.setAttribute("name", next);
         });
       });
     });
+  }
 
-    let searchQuery = '';
+  function init() {
+    const root = document.querySelector(".admin-variants");
+    if (!root) return;
 
-    function sortCatalog() {
-      catalog = catalog
-        .filter(Boolean)
-        .filter(function (item, index, list) {
-          return list.findIndex(function (value) {
-            return normalizeName(value) === normalizeName(item);
-          }) === index;
-        })
-        .sort(function (a, b) { return a.localeCompare(b, 'ru'); });
+    const container = root.querySelector("[data-parameters-container]");
+    const addParamButton = document.getElementById("add-parameter");
+    if (!container) return;
+
+    let initialParams = [];
+    try {
+      initialParams = JSON.parse(root.dataset.initialParameters || "[]");
+    } catch (error) {
+      console.error("Failed to parse initial parameters:", error);
     }
 
-    function rowsByName(name) {
-      return rows.filter(function (row) {
-        return normalizeName(row.name) === normalizeName(name);
-      });
-    }
+    const state = {
+      params: Array.isArray(initialParams)
+        ? initialParams.map(normalizeParam)
+        : [],
+    };
 
-    function toggleParameter(name) {
-      const exists = rowsByName(name);
-      if (exists.length) {
-        for (let i = rows.length - 1; i >= 0; i -= 1) {
-          if (normalizeName(rows[i].name) === normalizeName(name)) {
-            rows.splice(i, 1);
-          }
-        }
-      } else {
-        rows.push({
-          id: '',
-          name: name,
-          value: '',
-          unit: 'шт',
-          price: '',
-          stock_quantity: 0,
-          use_for_variants: true
-        });
-      }
-      renderParameters();
-    }
+    const repaint = () => {
+      container.innerHTML = "";
 
-    function addRow(name) {
-      rows.push({
-        id: '',
-        name: name,
-        value: '',
-        unit: 'шт',
-        price: '',
-        stock_quantity: 0,
-        use_for_variants: true
-      });
-      renderParameters();
-    }
-
-    function removeRow(name, indexInGroup) {
-      let seen = -1;
-      for (let i = 0; i < rows.length; i += 1) {
-        if (normalizeName(rows[i].name) !== normalizeName(name)) {
-          continue;
-        }
-        seen += 1;
-        if (seen === indexInGroup) {
-          rows.splice(i, 1);
-          break;
-        }
-      }
-      renderParameters();
-    }
-
-    function renderUnitOptions(selectedUnit) {
-      const units = DEFAULT_UNITS.slice();
-      if (selectedUnit && units.indexOf(selectedUnit) === -1) {
-        units.unshift(selectedUnit);
-      }
-      return units.map(function (unit) {
-        return '<option value="' + escapeHtml(unit) + '"' + (unit === selectedUnit ? ' selected' : '') + '>' + escapeHtml(unit) + '</option>';
-      }).join('');
-    }
-
-    function buildHiddenInputs(activeRows) {
-      const params = [];
-      const variants = [];
-      let paramIndex = 0;
-      let variantIndex = 0;
-
-      activeRows.forEach(function (row) {
-        const label = valueLabel(row);
-        if (!label) {
-          return;
-        }
-
-        params.push(
-          '<input type="hidden" name="product_parameters[' + paramIndex + '][id]" value="' + escapeHtml(row.id || '') + '">' +
-          '<input type="hidden" name="product_parameters[' + paramIndex + '][name]" value="' + escapeHtml(row.name) + '">' +
-          '<input type="hidden" name="product_parameters[' + paramIndex + '][use_for_variants]" value="1">' +
-          '<input type="hidden" name="product_parameters[' + paramIndex + '][values_text]" value="' + escapeHtml(label) + '">'
+      state.params.forEach((param, pIdx) => {
+        const card = createParamCard(
+          pIdx,
+          param,
+          () => {
+            state.params.splice(pIdx, 1);
+          },
+          () => {
+            reindexParameterNames(container);
+          },
+          param.values.length > 1,
         );
-        paramIndex += 1;
+        container.appendChild(card);
+      });
 
-        const variantAttributes = {};
-        variantAttributes[row.name] = label;
-        const variantLabel = row.name + ': ' + label;
-        variants.push(
-          '<input type="hidden" name="product_variants[' + variantIndex + '][id]" value="">' +
-          '<input type="hidden" name="product_variants[' + variantIndex + '][label]" value="' + escapeHtml(variantLabel) + '">' +
-          '<input type="hidden" name="product_variants[' + variantIndex + '][price]" value="' + escapeHtml(row.price) + '">' +
-          '<input type="hidden" name="product_variants[' + variantIndex + '][stock_quantity]" value="' + escapeHtml(String(row.stock_quantity || 0)) + '">' +
-          '<input type="hidden" name="product_variants[' + variantIndex + '][attributes_json]" value="' + escapeHtml(encodeURIComponent(JSON.stringify(variantAttributes))) + '">'
+      reindexParameterNames(container);
+    };
+
+    repaint();
+
+    if (addParamButton) {
+      addParamButton.addEventListener("click", () => {
+        state.params.push(
+          normalizeParam({
+            name: "",
+            values: [{ name: "", price: "", stock: "", image_url: "", image_preview: "", image_file: null }],
+          }),
         );
-        variantIndex += 1;
-      });
-
-      return '<div class="admin-variants__hidden-inputs">' + params.join('') + variants.join('') + '</div>';
-    }
-
-    function renderRowEditor(name, row, indexInGroup) {
-      return '' +
-        '<div class="param-controls">' +
-          '<input type="text" class="param-control-input" data-param-field="value" data-param-name="' + escapeHtml(name) + '" data-param-index="' + indexInGroup + '" value="' + escapeHtml(row.value) + '" placeholder="Значение">' +
-          '<select class="param-control-select" data-param-field="unit" data-param-name="' + escapeHtml(name) + '" data-param-index="' + indexInGroup + '">' + renderUnitOptions(row.unit || 'шт') + '</select>' +
-          '<input type="number" min="0" step="0.01" class="param-control-input" data-param-field="price" data-param-name="' + escapeHtml(name) + '" data-param-index="' + indexInGroup + '" value="' + escapeHtml(row.price) + '" placeholder="Цена">' +
-          '<input type="number" min="0" step="1" class="param-control-input" data-param-field="stock_quantity" data-param-name="' + escapeHtml(name) + '" data-param-index="' + indexInGroup + '" value="' + escapeHtml(String(row.stock_quantity || 0)) + '" placeholder="Остаток">' +
-          '<button type="button" class="param-row-remove" data-remove-row="' + escapeHtml(name) + '" data-remove-index="' + indexInGroup + '" aria-label="Удалить значение">×</button>' +
-        '</div>';
-    }
-
-    function renderCatalogItem(name) {
-      const groupRows = rowsByName(name);
-      const active = groupRows.length > 0;
-      const filterText = name.toLowerCase();
-      if (searchQuery && filterText.indexOf(searchQuery) === -1) {
-        return '';
-      }
-
-      const controls = active
-        ? '<div class="param-item__controls">' +
-            groupRows.map(function (row, indexInGroup) {
-              return renderRowEditor(name, row, indexInGroup);
-            }).join('') +
-            '<button type="button" class="param-item__add-row" data-add-row="' + escapeHtml(name) + '" aria-label="Добавить значение">+</button>' +
-            buildHiddenInputs(groupRows) +
-          '</div>'
-        : '';
-
-      return '' +
-        '<div class="list-item param-item' + (active ? ' active' : '') + '" data-param-item="' + escapeHtml(name) + '">' +
-          '<span class="param-item__title">' + escapeHtml(name) + '</span>' +
-          controls +
-        '</div>';
-    }
-
-    function findRow(name, indexInGroup) {
-      let seen = -1;
-      for (let i = 0; i < rows.length; i += 1) {
-        if (normalizeName(rows[i].name) !== normalizeName(name)) {
-          continue;
-        }
-        seen += 1;
-        if (seen === indexInGroup) {
-          return rows[i];
-        }
-      }
-      return null;
-    }
-
-    function renderParameters() {
-      sortCatalog();
-      parametersContainer.innerHTML = '' +
-        '<h4 class="admin-variants__section-subtitle">Параметры товара</h4>' +
-        '<div class="admin-variants__catalog">' +
-          '<input type="text" class="search-param admin-variants__search" data-search-param placeholder="Поиск параметров">' +
-          '<div class="list admin-variants__catalog-list">' + catalog.map(renderCatalogItem).join('') + '</div>' +
-          '<input type="text" class="add-param admin-variants__add-input" data-add-attribute-input placeholder="Добавить параметр и нажать Enter">' +
-        '</div>';
-
-      const searchInput = parametersContainer.querySelector('[data-search-param]');
-      if (searchInput) {
-        searchInput.value = searchQuery;
-        searchInput.addEventListener('input', function () {
-          searchQuery = String(this.value || '').trim().toLowerCase();
-          renderParameters();
-        });
-      }
-
-      parametersContainer.querySelectorAll('[data-param-item]').forEach(function (item) {
-        item.addEventListener('click', function () {
-          toggleParameter(item.getAttribute('data-param-item') || '');
-        });
-      });
-
-      parametersContainer.querySelectorAll('.param-item__controls').forEach(function (controls) {
-        controls.addEventListener('click', function (event) {
-          event.stopPropagation();
-        });
-      });
-
-      parametersContainer.querySelectorAll('[data-param-field]').forEach(function (field) {
-        const syncRow = function () {
-          const name = field.getAttribute('data-param-name') || '';
-          const indexInGroup = parseInt(field.getAttribute('data-param-index'), 10);
-          const property = field.getAttribute('data-param-field') || '';
-          const row = findRow(name, Number.isNaN(indexInGroup) ? 0 : indexInGroup);
-          if (!row) {
-            return;
-          }
-          if (property === 'stock_quantity') {
-            row.stock_quantity = Number(field.value || 0);
-          } else {
-            row[property] = field.value;
-          }
-        };
-
-        const changeHandler = function () {
-          syncRow();
-          renderParameters();
-        };
-
-        field.addEventListener('input', syncRow);
-        field.addEventListener('change', changeHandler);
-      });
-
-      parametersContainer.querySelectorAll('[data-add-row]').forEach(function (button) {
-        button.addEventListener('click', function (event) {
-          event.stopPropagation();
-          addRow(button.getAttribute('data-add-row') || '');
-        });
-      });
-
-      parametersContainer.querySelectorAll('[data-remove-row]').forEach(function (button) {
-        button.addEventListener('click', function (event) {
-          event.stopPropagation();
-          const name = button.getAttribute('data-remove-row') || '';
-          const indexInGroup = parseInt(button.getAttribute('data-remove-index'), 10);
-          removeRow(name, Number.isNaN(indexInGroup) ? 0 : indexInGroup);
-        });
-      });
-
-      const addInput = parametersContainer.querySelector('[data-add-attribute-input]');
-      if (addInput) {
-        addInput.addEventListener('keydown', function (event) {
-          if (event.key !== 'Enter') {
-            return;
-          }
-
-          event.preventDefault();
-          const value = String(addInput.value || '').trim();
-          if (!value || !createUrl) {
-            return;
-          }
-
-          if (catalog.some(function (item) { return normalizeName(item) === normalizeName(value); })) {
-            addInput.value = '';
-            return;
-          }
-
-          const body = new URLSearchParams();
-          body.set('csrf_token', csrfToken);
-          body.set('name', value);
-
-          fetch(createUrl, {
-            method: 'POST',
-            credentials: 'same-origin',
-            headers: {
-              'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
-              'Accept': 'application/json'
-            },
-            body: body.toString()
-          }).then(function (response) {
-            return response.json().then(function (json) {
-              return { ok: response.ok, json: json };
-            });
-          }).then(function (result) {
-            if (!result.ok || !result.json.success) {
-              throw new Error(result.json.message || 'Не удалось добавить параметр.');
-            }
-            const attribute = result.json.attribute || {};
-            const name = String(attribute.name || value).trim();
-            if (!catalog.some(function (item) { return normalizeName(item) === normalizeName(name); })) {
-              catalog.push(name);
-            }
-            addRow(name);
-            addInput.value = '';
-          }).catch(function () {});
-        });
-      }
-    }
-
-    renderParameters();
-
-    if (form) {
-      form.addEventListener('submit', function () {
-        renderParameters();
+        repaint();
       });
     }
   }
 
-  document.addEventListener('DOMContentLoaded', function () {
-    document.querySelectorAll('.admin-variants').forEach(render);
-  });
+  init();
 })();

@@ -25,11 +25,11 @@ $footer_base = defined('BASE_PATH') ? BASE_PATH : '';
         <div class="footer__info">
             <h3 class="footer__heading">Информация</h3>
             <ul class="footer__nav-list">
-                <li class="footer__nav-item"><a href="<?php echo $footer_base; ?>/privacy.php">Политика конфиденциальности</a></li>
+                <li class="footer__nav-item"><a href="<?php echo $footer_base; ?>/pages/privacy.php">Политика конфиденциальности</a></li>
                 <li class="footer__nav-item"><a href="<?php echo $footer_base; ?>/pages/contacts.php">Контакты</a></li>
-                <li class="footer__nav-item"><a href="<?php echo $footer_base; ?>/returns.php">Возврат</a></li>
-                <li class="footer__nav-item"><a href="<?php echo $footer_base; ?>/delivery.php">Доставка и оплата</a></li>
-                <li class="footer__nav-item"><a href="<?php echo $footer_base; ?>/sitemap.php">Карта сайта</a></li>
+                <li class="footer__nav-item"><a href="<?php echo $footer_base; ?>/pages/returns.php">Возврат</a></li>
+                <li class="footer__nav-item"><a href="<?php echo $footer_base; ?>/pages/delivery-payment.php">Доставка и оплата</a></li>
+                <li class="footer__nav-item"><a href="<?php echo $footer_base; ?>/pages/sitemap.php">Карта сайта</a></li>
             </ul>
         </div>
     </div>

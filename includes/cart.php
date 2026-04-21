@@ -15,6 +15,21 @@ function cart_line_key(int $productId, ?int $variantId): string
     return $productId . ':' . ($variantId === null ? 'base' : (string)$variantId);
 }
 
+function cart_normalize_attributes(array $attributes): array
+{
+    $normalized = [];
+    foreach ($attributes as $key => $value) {
+        $k = trim((string)$key);
+        $v = trim((string)$value);
+        if ($k === '' || $v === '') {
+            continue;
+        }
+        $normalized[$k] = $v;
+    }
+    ksort($normalized);
+    return $normalized;
+}
+
 function cart_normalize_lines(array $lines): array
 {
     $normalized = [];
@@ -27,6 +42,9 @@ function cart_normalize_lines(array $lines): array
         $productId = (int)($line['product_id'] ?? 0);
         $variantId = isset($line['variant_id']) && $line['variant_id'] !== '' ? (int)$line['variant_id'] : null;
         $quantity = max(1, (int)($line['quantity'] ?? 1));
+        $attributes = isset($line['attributes']) && is_array($line['attributes'])
+            ? cart_normalize_attributes($line['attributes'])
+            : [];
         if ($productId <= 0) {
             continue;
         }
@@ -37,10 +55,14 @@ function cart_normalize_lines(array $lines): array
                 'product_id' => $productId,
                 'variant_id' => $variantId,
                 'quantity' => 0,
+                'attributes' => [],
             ];
         }
 
         $normalized[$key]['quantity'] += $quantity;
+        if ($variantId === null && $attributes !== []) {
+            $normalized[$key]['attributes'] = $attributes;
+        }
     }
 
     return array_values($normalized);
@@ -64,16 +86,24 @@ function cart_clear(): void
     unset($_SESSION[cart_session_key()]);
 }
 
-function cart_add_item(int $productId, ?int $variantId, int $quantity = 1): array
+function cart_add_item(int $productId, ?int $variantId, int $quantity = 1, array $attributes = []): array
 {
     $quantity = max(1, $quantity);
+    $normalizedAttributes = cart_normalize_attributes($attributes);
+    $stockLimit = cart_stock_limit($productId, $variantId, $normalizedAttributes);
+    if ($stockLimit <= 0) {
+        throw new RuntimeException('Товар отсутствует на складе.');
+    }
     $lines = cart_get_lines();
     $key = cart_line_key($productId, $variantId);
     $found = false;
 
     foreach ($lines as &$line) {
         if (cart_line_key((int)$line['product_id'], isset($line['variant_id']) ? (int)$line['variant_id'] : null) === $key) {
-            $line['quantity'] += $quantity;
+            $line['quantity'] = min($stockLimit, $line['quantity'] + $quantity);
+            if ($variantId === null && $normalizedAttributes !== []) {
+                $line['attributes'] = $normalizedAttributes;
+            }
             $found = true;
             break;
         }
@@ -84,11 +114,37 @@ function cart_add_item(int $productId, ?int $variantId, int $quantity = 1): arra
         $lines[] = [
             'product_id' => $productId,
             'variant_id' => $variantId,
-            'quantity' => $quantity,
+            'quantity' => min($stockLimit, $quantity),
+            'attributes' => $variantId === null ? $normalizedAttributes : [],
         ];
     }
 
     return cart_save_lines($lines);
+}
+
+function cart_stock_limit(int $productId, ?int $variantId, array $attributes = []): int
+{
+    if ($variantId !== null) {
+        $variant = product_fetch_variant_by_id($productId, $variantId, true);
+        if (!$variant) {
+            return 0;
+        }
+        return max(0, (int)($variant['stock_quantity'] ?? 0));
+    }
+
+    $product = get_product_by_id($productId);
+    if (!$product) {
+        return 0;
+    }
+
+    if ($attributes !== [] && function_exists('product_find_stock_for_selection')) {
+        $selectionStock = product_find_stock_for_selection($productId, $attributes);
+        if ($selectionStock !== null) {
+            return max(0, (int)$selectionStock);
+        }
+    }
+
+    return max(0, (int)($product['stock_quantity'] ?? 0));
 }
 
 function cart_update_item(int $productId, ?int $variantId, int $quantity): array
@@ -147,6 +203,9 @@ function cart_build_item_state(array $line): array
     $variant = null;
     $variantLabel = '';
     $attributes = [];
+    $lineAttributes = isset($line['attributes']) && is_array($line['attributes'])
+        ? cart_normalize_attributes($line['attributes'])
+        : [];
     if ($variantId !== null) {
         $variant = product_fetch_variant_by_id($productId, $variantId, true);
         if (!$variant) {
@@ -169,20 +228,28 @@ function cart_build_item_state(array $line): array
         }
         $variantLabel = (string)($variant['label'] ?? '');
         $attributes = (array)($variant['attributes'] ?? []);
+    } else {
+        $attributes = $lineAttributes;
     }
 
     $state = build_dynamic_product_state($product, $attributes, $images);
     $unitPrice = (float)$state['price'];
     $basePrice = (float)$state['base_price'];
+    $stockLimit = cart_stock_limit($productId, $variantId, $attributes);
+    $availableQty = min($quantity, $stockLimit);
+    $displayAttributes = function_exists('product_humanize_attributes')
+        ? product_humanize_attributes($productId, $attributes)
+        : $attributes;
 
     return [
         'product_id' => $productId,
         'variant_id' => $variantId,
-        'quantity' => $quantity,
-        'available' => (bool)$state['in_stock'],
+        'quantity' => $availableQty > 0 ? $availableQty : $quantity,
+        'available' => (bool)$state['in_stock'] && $stockLimit > 0,
+        'stock_limit' => $stockLimit,
         'title' => (string)$product['name'],
         'variant_label' => $variantLabel !== '' ? $variantLabel : (string)($state['variant_label'] ?? ''),
-        'attributes' => $attributes,
+        'attributes' => $displayAttributes,
         'unit_price' => $unitPrice,
         'base_price' => $basePrice,
         'discount_percent' => (int)($state['discount_percent'] ?? 0),

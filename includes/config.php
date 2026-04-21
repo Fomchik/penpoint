@@ -2,6 +2,9 @@
 
 declare(strict_types=1);
 
+ini_set('display_errors', '0');
+error_reporting(E_ALL);
+
 if (!function_exists('app_bootstrap_env_file')) {
     function app_bootstrap_env_file(string $path): void
     {
@@ -521,8 +524,19 @@ function get_related_products($productId, $limit = 3): array
                 ORDER BY RAND()
                 LIMIT ?
             ");
-            $stmtExtra->execute([(int)$productId, (int)$limit]);
-            $products = array_slice(array_merge($products, $stmtExtra->fetchAll() ?: []), 0, (int)$limit);
+            $stmtExtra->execute([(int)$productId, (int)($limit * 2)]);
+            $extra_products = $stmtExtra->fetchAll() ?: [];
+            
+            // De-duplicate: collect IDs from first query to exclude from extra
+            $existing_ids = array_map(fn($p) => $p['id'], $products);
+            $unique_extra = array_filter($extra_products, fn($p) => !in_array($p['id'], $existing_ids));
+            
+            // Merge unique products only, up to the limit
+            $products = array_values(array_slice(
+                array_merge($products, $unique_extra),
+                0,
+                (int)$limit
+            ));
         }
 
         return $products;

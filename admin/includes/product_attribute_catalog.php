@@ -51,8 +51,13 @@ function admin_attribute_catalog_ensure_schema(PDO $pdo): void
 function admin_attribute_catalog_all(PDO $pdo): array
 {
     admin_attribute_catalog_ensure_schema($pdo);
-    $stmt = $pdo->query('SELECT id, name FROM attributes ORDER BY name ASC');
-    return $stmt ? ($stmt->fetchAll() ?: []) : [];
+    try {
+        $stmt = $pdo->query('SELECT id, name FROM attributes ORDER BY name ASC');
+        return $stmt ? ($stmt->fetchAll() ?: []) : [];
+    } catch (Throwable $e) {
+        admin_log_error('attribute_catalog_all', $e);
+        return [];
+    }
 }
 
 function admin_attribute_catalog_add(PDO $pdo, string $name): array
@@ -64,9 +69,11 @@ function admin_attribute_catalog_add(PDO $pdo, string $name): array
         throw new RuntimeException('Укажите название параметра.');
     }
 
+    // Проверка на существование (без учета регистра)
     $stmt = $pdo->prepare('SELECT id, name FROM attributes WHERE LOWER(name) = LOWER(?) LIMIT 1');
     $stmt->execute([$name]);
     $existing = $stmt->fetch();
+    
     if ($existing) {
         return [
             'id' => (int)$existing['id'],
@@ -81,4 +88,27 @@ function admin_attribute_catalog_add(PDO $pdo, string $name): array
         'id' => (int)$pdo->lastInsertId(),
         'name' => $name,
     ];
+}
+
+function admin_attribute_catalog_delete(PDO $pdo, int $id): bool
+{
+    admin_attribute_catalog_ensure_schema($pdo);
+
+    try {
+        
+        $stmt = $pdo->prepare('DELETE FROM attributes WHERE id = ? LIMIT 1');
+        $stmt->execute([$id]);
+        
+        return $stmt->rowCount() > 0;
+    } catch (Throwable $e) {
+        admin_log_error('attribute_catalog_delete', $e);
+        return false;
+    }
+}
+
+function admin_attribute_catalog_exists(PDO $pdo, string $name): bool
+{
+    $stmt = $pdo->prepare('SELECT 1 FROM attributes WHERE LOWER(name) = LOWER(?) LIMIT 1');
+    $stmt->execute([trim($name)]);
+    return (bool)$stmt->fetch();
 }

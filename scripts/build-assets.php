@@ -21,14 +21,20 @@ function app_collect_files(string $dir, string $ext): array
         return [];
     }
 
-    $files = glob($dir . '/*.' . $ext);
-    if ($files === false) {
-        return [];
-    }
-
     $result = [];
-    foreach ($files as $file) {
-        $name = strtolower(basename($file));
+    $iterator = new RecursiveIteratorIterator(
+        new RecursiveDirectoryIterator($dir, FilesystemIterator::SKIP_DOTS)
+    );
+    foreach ($iterator as $entry) {
+        if (!$entry->isFile()) {
+            continue;
+        }
+
+        $file = $entry->getPathname();
+        $name = strtolower((string)$entry->getFilename());
+        if (strtolower((string)$entry->getExtension()) !== $ext) {
+            continue;
+        }
         if (str_contains($name, '.min.' . $ext)) {
             continue;
         }
@@ -75,14 +81,14 @@ function app_minify_js(string $js): string
     return trim(implode("\n", $clean));
 }
 
-$cssFiles = array_merge(
+$cssFiles = array_values(array_unique(array_merge(
     app_collect_files($cssDir, 'css'),
     app_collect_files($adminAssetsDir, 'css')
-);
-$jsFiles = array_merge(
+)));
+$jsFiles = array_values(array_unique(array_merge(
     app_collect_files($jsDir, 'js'),
     app_collect_files($adminAssetsDir, 'js')
-);
+)));
 
 $cssOutput = '';
 foreach ($cssFiles as $file) {

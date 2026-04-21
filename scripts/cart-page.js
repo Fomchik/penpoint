@@ -22,18 +22,30 @@
         return (window.appResolvePath || function (item) { return String(item || ''); })(path).replace(/"/g, '%22').replace(/'/g, '%27');
     }
 
-    function pluralizeProduct(num) {
-        const n10 = num % 10;
-        const n100 = num % 100;
-        if (n10 === 1 && n100 !== 11) return 'товар';
-        if (n10 >= 2 && n10 <= 4 && (n100 < 12 || n100 > 14)) return 'товара';
-        return 'товаров';
-    }
-
+    
     function lineKey(item) {
         return String(Number(item.product_id) || 0) + ':' + (item.variant_id === null || item.variant_id === undefined ? 'base' : String(Number(item.variant_id) || 0));
     }
 
+    
+    function mapAttributeLabel(key) {
+        const map = {
+            color: 'Цвет',
+            size: 'Размер',
+            format: 'Формат',
+            volume: 'Объем',
+            thickness: 'Толщина',
+            set_quantity: 'Количество в наборе',
+            sheet_quantity: 'Количество листов',
+            paper_density: 'Плотность бумаги',
+            paper_type: 'Тип бумаги',
+            binding_type: 'Тип крепления',
+            cover_type: 'Тип обложки',
+            hardness: 'Жесткость'
+        };
+        const normalized = String(key || '').trim().toLowerCase();
+        return map[normalized] || String(key || '');
+    }
     function render(state) {
         const itemsContainer = document.getElementById('cart-items');
         const card = document.getElementById('cart-card');
@@ -60,7 +72,7 @@
         itemsContainer.innerHTML = state.items.map(function (item) {
             const attributes = item.attributes && typeof item.attributes === 'object'
                 ? Object.keys(item.attributes).map(function (key) {
-                    return '<span>' + escapeHtml(key) + ': ' + escapeHtml(item.attributes[key]) + '</span>';
+                    return '<span>' + escapeHtml(mapAttributeLabel(key)) + ': ' + escapeHtml(item.attributes[key]) + '</span>';
                 }).join(' · ')
                 : '';
             const meta = attributes || (item.variant_label ? escapeHtml(item.variant_label) : '');

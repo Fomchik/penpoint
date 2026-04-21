@@ -3,6 +3,7 @@ require_once __DIR__ . '/../includes/security.php';
 app_start_session();
 require_once __DIR__ . '/../includes/config.php';
 require_once __DIR__ . '/../includes/feedback.php';
+require_once __DIR__ . '/../includes/mail.php';
 
 $success_message = '';
 $send_error = '';
@@ -54,22 +55,35 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $safe_email = filter_var($email, FILTER_SANITIZE_EMAIL) ?: 'no-reply@localhost';
         $safe_phone = str_replace(["\r", "\n"], ' ', $phone);
 
-        $mail_body = "Новое сообщение с сайта Канцария\n\n";
-        $mail_body .= "Имя: {$safe_name}\n";
-        $mail_body .= "Email: {$safe_email}\n";
-        $mail_body .= "Телефон: {$safe_phone}\n";
-        $mail_body .= "Тема: {$selected_subject}\n\n";
-        $mail_body .= "Сообщение:\n{$message}\n";
+        $plain = "Новое сообщение с сайта Канцария\n\n";
+        $plain .= "Имя: {$safe_name}\n";
+        $plain .= "Email: {$safe_email}\n";
+        $plain .= "Телефон: {$safe_phone}\n";
+        $plain .= "Тема: {$selected_subject}\n\n";
+        $plain .= "Сообщение:\n{$message}\n";
 
-        $headers = [
-            'MIME-Version: 1.0',
-            'Content-Type: text/plain; charset=UTF-8',
-            'From: Канцария <no-reply@cantsaria.ru>',
-            'Reply-To: ' . $safe_email,
-            'X-Mailer: PHP/' . phpversion(),
-        ];
+        $safe_subject = htmlspecialchars((string)$selected_subject, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+        $html = '<!doctype html><html lang="ru"><head><meta charset="UTF-8"><title>' . $safe_subject . '</title></head><body style="margin:0;padding:24px;background:#f5f6f8;font-family:Arial,sans-serif;">'
+            . '<table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="max-width:640px;margin:0 auto;background:#ffffff;border-radius:12px;">'
+            . '<tr><td style="padding:22px 20px;color:#1f2937;font-size:15px;line-height:1.55;">'
+            . '<h2 style="margin:0 0 14px;font-size:18px;line-height:1.3;">Новое сообщение с формы контактов</h2>'
+            . '<p style="margin:0 0 6px;"><b>Имя:</b> ' . htmlspecialchars($safe_name, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '</p>'
+            . '<p style="margin:0 0 6px;"><b>Email:</b> ' . htmlspecialchars($safe_email, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '</p>'
+            . '<p style="margin:0 0 6px;"><b>Телефон:</b> ' . htmlspecialchars($safe_phone, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '</p>'
+            . '<p style="margin:0 0 12px;"><b>Тема:</b> ' . $safe_subject . '</p>'
+            . '<div style="padding:12px 14px;border:1px solid #eadfd5;border-radius:10px;background:#fbf7f3;white-space:pre-wrap;">'
+            . htmlspecialchars($message, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8')
+            . '</div>'
+            . '</td></tr></table></body></html>';
 
-        $mail_sent = @mail($to, $mail_subject, $mail_body, implode("\r\n", $headers));
+        $mail_sent = app_send_smtp_mail(
+            $to,
+            $mail_subject,
+            $html,
+            $plain,
+            $safe_email,
+            $safe_name
+        );
 
         if ($mail_sent) {
             $success_message = 'Спасибо! Ваше сообщение отправлено.';
@@ -243,7 +257,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                             <div class="contacts-form__footer">
                                 <div class="contacts-form__notice">
                                     <img src="<?php echo BASE_PATH; ?>/assets/icons/notification.svg" alt="" width="16" height="16" aria-hidden="true">
-                                    <span>Нажимая кнопку, вы соглашаетесь с <a href="/privacy.php" class="contacts-form__policy-link">политикой обработки персональных данных</a>.</span>
+                                    <span>Нажимая кнопку, вы соглашаетесь с <a href="/pages/privacy.php" class="contacts-form__policy-link">политикой обработки персональных данных</a>.</span>
                                 </div>
                                 <button type="submit" class="contacts-form__submit">Отправить</button>
                             </div>

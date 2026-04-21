@@ -8,31 +8,41 @@ admin_require_auth();
 
 global $pdo;
 
-$productCount = 0;
-$orderCount = 0;
-$userCount = 0;
-$latestOrders = [];
-
-/**
- * Возвращает количество по SQL-запросу, не влияя на остальные метрики при ошибке.
- */
-function admin_fetch_count_safe(PDO $pdo, string $sql, string $logKey): int
+function admin_fetch_metric(PDO $pdo, string $sql, array $params = []): float
 {
     try {
-        return (int)($pdo->query($sql)->fetchColumn() ?: 0);
+        $stmt = $pdo->prepare($sql);
+        $stmt->execute($params);
+        return (float)($stmt->fetchColumn() ?: 0);
     } catch (Throwable $e) {
-        admin_log_error($logKey, $e);
+        admin_log_error('dashboard_metrics', $e);
         return 0;
     }
 }
 
-$productCount = admin_fetch_count_safe($pdo, 'SELECT COUNT(*) FROM products', 'dashboard_products_count');
-$orderCount = admin_fetch_count_safe($pdo, 'SELECT COUNT(*) FROM orders', 'dashboard_orders_count');
-$userCount = admin_fetch_count_safe($pdo, 'SELECT COUNT(*) FROM users', 'dashboard_users_count');
+$productCount = (int)admin_fetch_metric($pdo, 'SELECT COUNT(*) FROM products');
 
+$orderCount = (int)admin_fetch_metric($pdo, 'SELECT COUNT(*) FROM orders WHERE status_id != 5');
+
+$userCount = (int)admin_fetch_metric(
+    $pdo,
+    'SELECT COUNT(u.id) FROM users u 
+     INNER JOIN roles r ON u.role_id = r.id 
+     WHERE r.name = ?',
+    ['client']
+);
+
+$revenue = admin_fetch_metric(
+    $pdo,
+    'SELECT SUM(total_price) FROM orders 
+     WHERE status_id IN (2, 3, 4, 6) 
+     AND created_at >= DATE_SUB(NOW(), INTERVAL 30 DAY)'
+);
+
+$latestOrders = [];
 try {
     $stmt = $pdo->query(
-        'SELECT o.id, o.total_price, o.created_at, u.name AS user_name, os.name AS status_name
+        'SELECT o.id, o.total_price, o.created_at, o.status_id, u.name AS user_name, os.name AS status_name
          FROM orders o
          LEFT JOIN users u ON u.id = o.user_id
          LEFT JOIN order_statuses os ON os.id = o.status_id
@@ -41,59 +51,81 @@ try {
     );
     $latestOrders = $stmt->fetchAll() ?: [];
 } catch (Throwable $e) {
-    admin_log_error('dashboard', $e);
-    admin_set_flash('error', 'Не удалось загрузить данные dashboard.');
+    admin_log_error('dashboard_orders', $e);
 }
 
-admin_render_header('Dashboard', 'dashboard');
+admin_render_header('Панель управления', 'dashboard');
 ?>
+
 <section class="admin-metrics">
     <article class="admin-card">
-        <h2>Товаров</h2>
-        <p><?php echo admin_e((string)$productCount); ?></p>
+        <h3>Товары</h3>
+        <p class="admin-card__value"><?php echo admin_e((string)$productCount); ?></p>
+        <span class="admin-card__hint"></span>
     </article>
+
     <article class="admin-card">
-        <h2>Заказов</h2>
-        <p><?php echo admin_e((string)$orderCount); ?></p>
+        <h3>Заказы</h3>
+        <p class="admin-card__value"><?php echo admin_e((string)$orderCount); ?></p>
+        <span class="admin-card__hint"></span>
     </article>
+
     <article class="admin-card">
-        <h2>Пользователей</h2>
-        <p><?php echo admin_e((string)$userCount); ?></p>
+        <h3>Клиенты</h3>
+        <p class="admin-card__value"><?php echo admin_e((string)$userCount); ?></p>
+        <span class="admin-card__hint"></span>
+    </article>
+
+    <article class="admin-card admin-card--highlight">
+        <h3>Доход (30 дн.)</h3>
+        <p class="admin-card__value"><?php echo admin_e(number_format($revenue, 0, '.', ' ')); ?> ₽</p>
+        <span class="admin-card__hint"></span>
     </article>
 </section>
 
 <section class="admin-table-wrap">
     <div class="admin-section-head">
-        <h2>Последние заказы</h2>
-        <a class="admin-link-btn" href="/admin/orders.php">Все заказы</a>
+        <h2>Последняя активность</h2>
+        <a class="admin-link-btn" href="/admin/orders.php">Весь журнал</a>
     </div>
+
     <table class="admin-table">
         <thead>
-        <tr>
-            <th>ID</th>
-            <th>Пользователь</th>
-            <th>Сумма</th>
-            <th>Статус</th>
-            <th>Дата</th>
-            <th>Действия</th>
-        </tr>
+            <tr>
+                <th>ID</th>
+                <th>Покупатель</th>
+                <th>Сумма</th>
+                <th>Статус</th>
+                <th>Дата</th>
+                <th class="text-right">Управление</th>
+            </tr>
         </thead>
         <tbody>
-        <?php if (!$latestOrders): ?>
-            <tr><td colspan="6">Заказов пока нет.</td></tr>
-        <?php else: ?>
-            <?php foreach ($latestOrders as $order): ?>
-                <tr>
-                    <td><?php echo admin_e((string)$order['id']); ?></td>
+            <?php foreach ($latestOrders as $order):
+                // Выделяем отмененные заказы визуально
+                $isCancelled = (int)$order['status_id'] === 5;
+            ?>
+                <tr style="<?php echo $isCancelled ? 'opacity: 0.6; background: #f9f9f9;' : ''; ?>">
+                    <td>#<?php echo admin_e((string)$order['id']); ?></td>
                     <td><?php echo admin_e((string)($order['user_name'] ?? 'Гость')); ?></td>
-                    <td><?php echo admin_e(number_format((float)$order['total_price'], 2, '.', ' ')); ?></td>
-                    <td><?php echo admin_e((string)($order['status_name'] ?? '—')); ?></td>
+                    <td>
+                        <span style="<?php echo $isCancelled ? 'text-decoration: line-through;' : ''; ?>">
+                            <?php echo admin_e(number_format((float)$order['total_price'], 2, '.', ' ')); ?> ₽
+                        </span>
+                    </td>
+                    <td>
+                        <span class="admin-status-badge status-<?php echo $order['status_id']; ?>">
+                            <?php echo admin_e((string)($order['status_name'] ?? '—')); ?>
+                        </span>
+                    </td>
                     <td><?php echo admin_e(date('d.m.Y H:i', strtotime((string)$order['created_at']))); ?></td>
-                    <td><a href="/admin/order_view.php?id=<?php echo admin_e((string)$order['id']); ?>">Открыть</a></td>
+                    <td class="text-right">
+                        <a class="admin-action-link" href="/admin/order_view.php?id=<?php echo admin_e((string)$order['id']); ?>">Просмотр</a>
+                    </td>
                 </tr>
             <?php endforeach; ?>
-        <?php endif; ?>
         </tbody>
     </table>
 </section>
+
 <?php admin_render_footer(); ?>

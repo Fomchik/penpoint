@@ -3,6 +3,7 @@ require_once __DIR__ . '/../includes/security.php';
 app_start_session();
 require_once __DIR__ . '/../includes/config.php';
 require_once __DIR__ . '/../includes/product_options.php';
+require_once __DIR__ . '/../includes/product_characteristics.php';
 require_once __DIR__ . '/../includes/reviews.php';
 
 $product_id = isset($_GET['id']) ? (int)$_GET['id'] : 0;
@@ -23,6 +24,7 @@ $needs_color_panel = $product ? product_needs_color_panel($product['id']) : fals
 $product_options = $product ? get_product_options_for_product((int)$product['id']) : [];
 $product_images = $product ? app_fetch_product_images((int)$product['id']) : [];
 $initial_state = $product ? build_dynamic_product_state($product, [], $product_images) : [];
+$characteristics = $product ? product_characteristics_fetch($pdo, (int)$product['id']) : [];
 $related_products = $product ? enrich_products_with_discounts(get_related_products($product['id'], 3)) : [];
 $reviews = $product ? reviews_fetch_product($pdo, (int)$product['id']) : [];
 
@@ -36,6 +38,7 @@ try {
 ?>
 <!DOCTYPE html>
 <html lang="ru">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -50,6 +53,7 @@ try {
     <link rel="stylesheet" href="/styles/product-page.css">
     <title><?php echo $product ? htmlspecialchars($product['name']) : 'Товар не найден'; ?> — Канцария</title>
 </head>
+
 <body>
     <?php include __DIR__ . '/../includes/header.php'; ?>
 
@@ -63,6 +67,7 @@ try {
                 data-product-page
                 data-product-id="<?php echo (int)$product['id']; ?>"
                 data-product-state-url="/api/product_state.php"
+                data-product-images="<?php echo htmlspecialchars(json_encode($product_images, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES), ENT_QUOTES, 'UTF-8'); ?>"
                 data-review-submit-url="/api/review_submit.php">
                 <div class="product-page__top">
                     <div class="product-page__gallery">
@@ -72,7 +77,9 @@ try {
                         <button type="button" class="product-page__wishlist" aria-label="В избранное" data-product-id="<?php echo (int)$product['id']; ?>">
                             <img src="/assets/icons/heart.svg" alt="" class="product-page__wishlist-icon">
                         </button>
-                        <img src="<?php echo htmlspecialchars($image); ?>" alt="<?php echo htmlspecialchars($product['name']); ?>" class="product-page__image" data-product-image>
+                        <div class="product-page__image-slider" data-product-image-slider>
+                            <img src="<?php echo htmlspecialchars($image); ?>" alt="<?php echo htmlspecialchars($product['name']); ?>" class="product-page__image" data-product-image>
+                        </div>
                     </div>
 
                     <div class="product-page__info">
@@ -186,6 +193,16 @@ try {
                                             <td class="product-page__spec-name">Категория</td>
                                             <td class="product-page__spec-value"><?php echo htmlspecialchars($product['category_name'] ?? 'Не указана'); ?></td>
                                         </tr>
+                                        <?php if (!empty($characteristics)): ?>
+                                            <tbody>
+                                                <?php foreach ($characteristics as $row): ?>
+                                                    <tr>
+                                                        <td class="product-page__spec-name"><?php echo htmlspecialchars((string)($row['name'] ?? '')); ?></td>
+                                                        <td class="product-page__spec-value"><?php echo htmlspecialchars((string)($row['value'] ?? '')); ?></td>
+                                                    </tr>
+                                                <?php endforeach; ?>
+                                            </tbody>
+                                        <?php endif; ?>
                                         <tbody data-product-spec-attributes>
                                             <?php if (!empty($initial_state['attributes']) && is_array($initial_state['attributes'])): ?>
                                                 <?php foreach ($initial_state['attributes'] as $attributeName => $attributeValue): ?>
@@ -194,21 +211,8 @@ try {
                                                         <td class="product-page__spec-value"><?php echo htmlspecialchars((string)$attributeValue); ?></td>
                                                     </tr>
                                                 <?php endforeach; ?>
-                                            <?php else: ?>
-                                                <tr>
-                                                    <td class="product-page__spec-name">Вариант</td>
-                                                    <td class="product-page__spec-value">Базовый</td>
-                                                </tr>
                                             <?php endif; ?>
                                         </tbody>
-                                        <tr>
-                                            <td class="product-page__spec-name">Наличие</td>
-                                            <td class="product-page__spec-value" data-product-spec-stock><?php echo (int)$initial_state['stock']; ?> шт.</td>
-                                        </tr>
-                                        <tr>
-                                            <td class="product-page__spec-name">Цена</td>
-                                            <td class="product-page__spec-value" data-product-spec-price><?php echo format_price($price_new); ?></td>
-                                        </tr>
                                     </table>
                                 </div>
                                 <div class="product-page__tab-content" data-content="delivery">
@@ -232,7 +236,7 @@ try {
                                             <strong>Средняя оценка: <?php echo htmlspecialchars(number_format((float)$rating['rating'], 1, '.', ''), ENT_QUOTES, 'UTF-8'); ?></strong>
                                             <span>Всего отзывов: <?php echo (int)$rating['count']; ?></span>
                                         </div>
-<div class="product-reviews__list" data-review-list>
+                                        <div class="product-reviews__list" data-review-list>
                                             <?php if ($reviews === []): ?>
                                                 <div class="product-reviews__empty">Пока нет отзывов.</div>
                                             <?php else: ?>
@@ -312,4 +316,5 @@ try {
     <?php include __DIR__ . '/../includes/footer.php'; ?>
     <script src="/scripts/product-page.js"></script>
 </body>
+
 </html>

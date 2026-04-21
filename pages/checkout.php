@@ -355,7 +355,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
                     <p class="checkout-agree">
                         Подтверждая заказ, Вы даёте согласие на обработку персональных данных в соответствии с
-                        <a href="/privacy.php" class="checkout-agree__link">политикой конфиденциальности</a>
+                        <a href="/pages/privacy.php" class="checkout-agree__link">политикой конфиденциальности</a>
                     </p>
                     <button type="submit" class="checkout-submit">Подтвердить заказ</button>
                 </form>

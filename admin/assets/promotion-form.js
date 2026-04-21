@@ -1,23 +1,30 @@
 (function () {
-    'use strict';
+  "use strict";
 
-    const scope = document.getElementById('promotion-scope');
-    const categoriesField = document.getElementById('categories-field');
-    const productsField = document.getElementById('products-field');
+  const scope = document.getElementById("promotion-scope");
+  const fields = {
+    categories: document.getElementById("categories-field"),
+    products: document.getElementById("products-field"),
+  };
 
-    function refreshScopeFields() {
-        if (!scope || !categoriesField || !productsField) {
-            return;
-        }
+  function refreshScopeFields() {
+    if (!scope) return;
 
-        const value = scope.value;
-        categoriesField.style.display = value === 'categories' ? 'grid' : 'none';
-        productsField.style.display = value === 'products' ? 'grid' : 'none';
-    }
+    const currentValue = scope.value;
 
-    if (scope) {
-        scope.addEventListener('change', refreshScopeFields);
-    }
+    // Перебираем все связанные поля
+    Object.keys(fields).forEach((key) => {
+      const element = fields[key];
+      if (!element) return;
 
-    refreshScopeFields();
+      element.classList.toggle("is-hidden", key !== currentValue);
+    });
+  }
+
+  if (scope) {
+    scope.addEventListener("change", refreshScopeFields);
+  }
+
+  // Инициализация при загрузке
+  refreshScopeFields();
 })();

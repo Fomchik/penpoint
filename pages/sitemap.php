@@ -1,7 +1,7 @@
 <?php
-require_once __DIR__ . '/includes/security.php';
+require_once __DIR__ . '/../includes/security.php';
 app_start_session();
-require_once __DIR__ . '/includes/config.php';
+require_once __DIR__ . '/../includes/config.php';
 ?>
 <!DOCTYPE html>
 <html lang="ru">
@@ -17,11 +17,10 @@ require_once __DIR__ . '/includes/config.php';
     <title>Карта сайта — Канцария</title>
 </head>
 <body>
-<?php include __DIR__ . '/includes/header.php'; ?>
+<?php include __DIR__ . '/../includes/header.php'; ?>
 <main class="main">
     <section class="legal-page">
         <h1>Карта сайта</h1>
-
         <h2>Основные страницы</h2>
         <ul>
             <li><a href="<?php echo htmlspecialchars(app_url('/index.php'), ENT_QUOTES, 'UTF-8'); ?>">Главная</a></li>
@@ -31,14 +30,13 @@ require_once __DIR__ . '/includes/config.php';
             <li><a href="<?php echo htmlspecialchars(app_url('/pages/checkout.php'), ENT_QUOTES, 'UTF-8'); ?>">Оформление заказа</a></li>
             <li><a href="<?php echo htmlspecialchars(app_url('/pages/account.php'), ENT_QUOTES, 'UTF-8'); ?>">Личный кабинет</a></li>
         </ul>
-
         <h2>Информационные страницы</h2>
         <ul>
             <li><a href="<?php echo htmlspecialchars(app_url('/pages/delivery-payment.php'), ENT_QUOTES, 'UTF-8'); ?>">Доставка и оплата</a></li>
-            <li><a href="<?php echo htmlspecialchars(app_url('/returns.php'), ENT_QUOTES, 'UTF-8'); ?>">Возврат</a></li>
-            <li><a href="<?php echo htmlspecialchars(app_url('/privacy.php'), ENT_QUOTES, 'UTF-8'); ?>">Политика обработки персональных данных</a></li>
+            <li><a href="<?php echo htmlspecialchars(app_url('/pages/returns.php'), ENT_QUOTES, 'UTF-8'); ?>">Возврат</a></li>
+            <li><a href="<?php echo htmlspecialchars(app_url('/pages/privacy.php'), ENT_QUOTES, 'UTF-8'); ?>">Политика обработки персональных данных</a></li>
+            <li><a href="<?php echo htmlspecialchars(app_url('/pages/offer.php'), ENT_QUOTES, 'UTF-8'); ?>">Пользовательское соглашение</a></li>
         </ul>
-
         <h2>Дополнительно</h2>
         <ul>
             <li><a href="<?php echo htmlspecialchars(app_url('/pages/contacts.php'), ENT_QUOTES, 'UTF-8'); ?>">Контакты</a></li>
@@ -46,6 +44,6 @@ require_once __DIR__ . '/includes/config.php';
         </ul>
     </section>
 </main>
-<?php include __DIR__ . '/includes/footer.php'; ?>
+<?php include __DIR__ . '/../includes/footer.php'; ?>
 </body>
 </html>

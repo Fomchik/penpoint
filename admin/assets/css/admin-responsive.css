@@ -1,0 +1,36 @@
+@media (max-width: 1024px) {
+  .admin-shell {
+    grid-template-columns: 1fr;
+  }
+
+  .admin-sidebar {
+    gap: 12px;
+  }
+
+  .admin-nav {
+    flex-direction: row;
+    flex-wrap: wrap;
+  }
+
+  .admin-nav__item {
+    border: 1px solid rgba(255, 255, 255, 0.22);
+  }
+
+  .admin-main {
+    padding: 16px;
+  }
+
+  .admin-grid-2,
+  .admin-form-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .param-controls {
+    grid-template-columns: 1fr;
+    justify-content: stretch;
+  }
+
+  .param-control-input {
+    max-width: none;
+  }
+}

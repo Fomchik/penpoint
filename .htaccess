@@ -5,8 +5,12 @@ DirectoryIndex index.php
 RewriteEngine On
 RewriteRule ^delivery\.php$ /pages/delivery-payment.php [R=301,L]
 RewriteRule ^payment\.php$ /pages/delivery-payment.php [R=301,L]
-RewriteRule ^consent\.php$ /privacy.php#consent [R=301,L]
-RewriteRule ^cookies\.php$ /privacy.php#cookies [R=301,L]
+RewriteRule ^privacy\.php$ /pages/privacy.php [R=301,L]
+RewriteRule ^returns\.php$ /pages/returns.php [R=301,L]
+RewriteRule ^offer\.php$ /pages/offer.php [R=301,L]
+RewriteRule ^sitemap\.php$ /pages/sitemap.php [R=301,L]
+RewriteRule ^consent\.php$ /pages/privacy.php#consent [R=301,L]
+RewriteRule ^cookies\.php$ /pages/privacy.php#cookies [R=301,L]
 RewriteCond %{REQUEST_URI} !(^|/)\.(well-known)(/|$)
 RewriteCond %{REQUEST_URI} !(^|/)(assets|uploads|vendor|api|admin|pages|includes)(/|$) [NC]
 RewriteCond %{REQUEST_FILENAME} !-f

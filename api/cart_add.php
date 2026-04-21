@@ -20,6 +20,7 @@ $payload = cart_require_json_input();
 $productId = (int)($payload['product_id'] ?? 0);
 $variantId = array_key_exists('variant_id', $payload) && $payload['variant_id'] !== null && $payload['variant_id'] !== '' ? (int)$payload['variant_id'] : null;
 $quantity = max(1, (int)($payload['quantity'] ?? 1));
+$attributes = isset($payload['attributes']) && is_array($payload['attributes']) ? $payload['attributes'] : [];
 
 if ($productId <= 0) {
     http_response_code(422);
@@ -39,5 +40,33 @@ if ($variantId !== null && !product_fetch_variant_by_id($productId, $variantId, 
     exit;
 }
 
-cart_add_item($productId, $variantId, $quantity);
+try {
+    $stockLimit = cart_stock_limit($productId, $variantId, $attributes);
+    if ($stockLimit <= 0) {
+        http_response_code(422);
+        echo json_encode(['success' => false, 'message' => 'Товар закончился на складе.'], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        exit;
+    }
+
+    $alreadyInCart = 0;
+    foreach (cart_get_lines() as $line) {
+        $lineProductId = (int)($line['product_id'] ?? 0);
+        $lineVariantId = isset($line['variant_id']) && $line['variant_id'] !== null ? (int)$line['variant_id'] : null;
+        if ($lineProductId === $productId && $lineVariantId === $variantId) {
+            $alreadyInCart = max(0, (int)($line['quantity'] ?? 0));
+            break;
+        }
+    }
+    if ($alreadyInCart + $quantity > $stockLimit) {
+        http_response_code(422);
+        echo json_encode(['success' => false, 'message' => 'Недостаточно товара на складе для выбранного варианта.'], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        exit;
+    }
+
+    cart_add_item($productId, $variantId, $quantity, $attributes);
+} catch (Throwable $e) {
+    http_response_code(422);
+    echo json_encode(['success' => false, 'message' => $e->getMessage()], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    exit;
+}
 echo json_encode(['success' => true, 'state' => cart_get_state()], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);

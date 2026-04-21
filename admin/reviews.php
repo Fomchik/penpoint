@@ -9,7 +9,7 @@ admin_require_auth();
 
 global $pdo;
 
-$visibilityAvailable = admin_reviews_visibility_available();
+$visibilityAvailable = admin_reviews_visibility_available($pdo);
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     admin_validate_csrf_or_fail();

@@ -1,0 +1,54 @@
+:root {
+  --bg: #f7f4f1;
+  --panel: #ffffff;
+  --line: #eadfd5;
+  --text: #2e2e2e;
+  --muted: #7c6d60;
+  --brand: #d55204;
+  --brand-soft: #fff2e8;
+  --danger: #b42318;
+  --success: #087443;
+  --warning: #9a6700;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: "Open Sans", sans-serif;
+  color: var(--text);
+  background: linear-gradient(180deg, #fbf7f3 0%, #f7f4f1 36%, #f3efea 100%);
+}
+
+.admin-login-body {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+}
+
+.admin-login-wrap {
+  width: 100%;
+  max-width: 420px;
+}
+
+.admin-login-card {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 24px;
+  box-shadow: 0 12px 28px rgba(54, 34, 19, 0.08);
+}
+
+.admin-login-card h1 {
+  margin: 0 0 8px;
+  font-family: "Montserrat", sans-serif;
+  font-size: 24px;
+}
+
+.admin-login-subtitle {
+  margin: 0 0 18px;
+  color: var(--muted);
+}

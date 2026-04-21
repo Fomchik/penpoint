@@ -74,11 +74,18 @@ function admin_authenticate(string $email, string $password): bool
             return false;
         }
 
-        session_regenerate_id(true);
+        // Защита от фиксации сессии (Session Fixation)
+        if (session_status() === PHP_SESSION_ACTIVE) {
+            session_regenerate_id(true);
+        }
+
+        // Дублируем ключи для совместимости со старым кодом и клиентом
         $_SESSION['user_id'] = (int)$user['id'];
         $_SESSION['user_name'] = (string)$user['name'];
         $_SESSION['user_email'] = (string)$user['email'];
         $_SESSION['role_name'] = 'admin';
+
+        // Специфичные ключи админки
         $_SESSION['admin_user_id'] = (int)$user['id'];
         $_SESSION['admin_user_name'] = (string)$user['name'];
         $_SESSION['admin_user_email'] = (string)$user['email'];

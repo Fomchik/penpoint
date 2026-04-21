@@ -14,6 +14,34 @@
             .replace(/'/g, '&#039;');
     }
 
+    function normalizeImages(images) {
+        if (!Array.isArray(images)) {
+            return [];
+        }
+
+        return Array.from(new Set(images.map(function (item) {
+            return String(item || '').trim();
+        }).filter(function (item) {
+            return item !== '';
+        })));
+    }
+    function renderProductImageSlider(root, images) {
+        const image = root.querySelector('[data-product-image]');
+        const dots = root.querySelector('[data-product-image-dots]');
+        if (!image) {
+            return;
+        }
+
+        const uniqueImages = normalizeImages(images);
+        if (uniqueImages.length > 0) {
+            image.src = uniqueImages[0];
+        }
+
+        if (dots) {
+            dots.innerHTML = '';
+            dots.classList.add('product-page__image-dots--hidden');
+        }
+    }
     function collectSelections(root) {
         const result = {};
         root.querySelectorAll('.product-page__variant-option.is-active').forEach(function (button) {
@@ -33,7 +61,7 @@
         });
 
         if (entries.length === 0) {
-            holder.innerHTML = '<tr><td class="product-page__spec-name">Вариант</td><td class="product-page__spec-value">Базовый</td></tr>';
+            holder.innerHTML = '';
             return;
         }
 
@@ -54,9 +82,6 @@
         const price = root.querySelector('[data-final-price]');
         const basePrice = root.querySelector('[data-base-price]');
         const stock = root.querySelector('[data-product-stock]');
-        const specPrice = root.querySelector('[data-product-spec-price]');
-        const specStock = root.querySelector('[data-product-spec-stock]');
-        const image = root.querySelector('[data-product-image]');
         const addButton = root.querySelector('.product-page__add-to-cart');
 
         if (price) {
@@ -71,15 +96,31 @@
             basePrice.classList.toggle('visually-hidden', !showBase);
         }
         if (stock) stock.textContent = String(Number(state.stock) || 0) + ' шт';
-        if (specPrice) specPrice.textContent = state.price_formatted || formatPrice(state.price);
-        if (specStock) specStock.textContent = String(Number(state.stock) || 0) + ' шт.';
         renderVariantAttributes(root, state.attributes || {});
-        if (image && state.image) image.src = state.image;
+
+        const images = Array.isArray(state.images) && state.images.length ? state.images : (state.image ? [state.image] : []);
+        renderProductImageSlider(root, images);
+        
+        // При смене варианта сбрасываем слайдер на первое изображение
         if (addButton) {
             addButton.setAttribute('data-product-price', String(Number(state.price) || 0));
             addButton.setAttribute('data-product-old-price', String(Number(state.base_price) || 0));
             addButton.setAttribute('data-variant-id', state.variant_id === null || state.variant_id === undefined ? '' : String(Number(state.variant_id) || 0));
             addButton.disabled = !state.in_stock;
+        }
+    }
+
+    function parseInitialProductImages(root) {
+        const payload = root.getAttribute('data-product-images');
+        if (!payload) {
+            return [];
+        }
+
+        try {
+            const images = JSON.parse(payload);
+            return normalizeImages(images);
+        } catch (error) {
+            return [];
         }
     }
 
@@ -157,6 +198,9 @@
             }).then(function (response) {
                 return response.json();
             }).then(function (state) {
+                if (!state || typeof state !== 'object' || !Object.prototype.hasOwnProperty.call(state, 'price')) {
+                    return;
+                }
                 applyState(root, state);
             }).catch(function () {});
         }
@@ -179,6 +223,13 @@
                 }
             });
         });
+
+        if (root.querySelectorAll('.product-page__variant-option').length === 0) {
+            const initialImages = parseInitialProductImages(root);
+            if (initialImages.length > 0) {
+                renderProductImageSlider(root, initialImages);
+            }
+        }
 
         refresh();
     }

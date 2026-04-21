@@ -1,7 +1,7 @@
 <?php
-require_once __DIR__ . '/includes/security.php';
+require_once __DIR__ . '/../includes/security.php';
 app_start_session();
-require_once __DIR__ . '/includes/config.php';
+require_once __DIR__ . '/../includes/config.php';
 ?>
 <!DOCTYPE html>
 <html lang="ru">
@@ -9,17 +9,15 @@ require_once __DIR__ . '/includes/config.php';
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="description" content="Пользовательское соглашение (публичная оферта) интернет-магазина Канцария.">
-    <link rel="icon" href="<?php echo htmlspecialchars(app_asset_url('/assets/icons/favicon.ico'), ENT_QUOTES, 'UTF-8'); ?>" sizes="any">
-    <?php app_print_styles([
-        '/styles/global.css',
-        '/styles/header.css',
-        '/styles/footer.css',
-        '/styles/legal-pages.css',
-    ]); ?>
+    <link rel="icon" href="<?php echo htmlspecialchars(app_url('/assets/icons/favicon.ico'), ENT_QUOTES, 'UTF-8'); ?>" sizes="any">
+    <link rel="stylesheet" href="<?php echo htmlspecialchars(app_url('/styles/global.css'), ENT_QUOTES, 'UTF-8'); ?>">
+    <link rel="stylesheet" href="<?php echo htmlspecialchars(app_url('/styles/header.css'), ENT_QUOTES, 'UTF-8'); ?>">
+    <link rel="stylesheet" href="<?php echo htmlspecialchars(app_url('/styles/footer.css'), ENT_QUOTES, 'UTF-8'); ?>">
+    <link rel="stylesheet" href="<?php echo htmlspecialchars(app_url('/styles/legal-pages.css'), ENT_QUOTES, 'UTF-8'); ?>">
     <title>Пользовательское соглашение (оферта) — Канцария</title>
 </head>
 <body>
-<?php include __DIR__ . '/includes/header.php'; ?>
+<?php include __DIR__ . '/../includes/header.php'; ?>
 
 <main class="main">
     <section class="legal-page">
@@ -53,7 +51,7 @@ require_once __DIR__ . '/includes/config.php';
         <p>Порядок доставки определяется разделом <a href="<?php echo htmlspecialchars(app_url('/pages/delivery-payment.php'), ENT_QUOTES, 'UTF-8'); ?>">«Доставка»</a>.</p>
 
         <h2>7. Возврат и обмен товара</h2>
-        <p>Порядок возврата и обмена определяется разделом <a href="<?php echo htmlspecialchars(app_url('/returns.php'), ENT_QUOTES, 'UTF-8'); ?>">«Возврат и обмен»</a>.</p>
+        <p>Порядок возврата и обмена определяется разделом <a href="<?php echo htmlspecialchars(app_url('/pages/returns.php'), ENT_QUOTES, 'UTF-8'); ?>">«Возврат и обмен»</a>.</p>
 
         <h2>8. Ответственность сторон</h2>
         <p>Стороны несут ответственность в соответствии с законодательством Российской Федерации и условиями настоящей оферты.</p>
@@ -63,6 +61,6 @@ require_once __DIR__ . '/includes/config.php';
     </section>
 </main>
 
-<?php include __DIR__ . '/includes/footer.php'; ?>
+<?php include __DIR__ . '/../includes/footer.php'; ?>
 </body>
 </html>

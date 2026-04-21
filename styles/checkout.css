@@ -433,6 +433,7 @@ body {
     padding: 10px 11px;
     font-size: 0.95rem;
     font-family: inherit;
+    margin-bottom: 8px;
 }
 
 .delivery-modal__row {

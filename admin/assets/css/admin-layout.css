@@ -1,0 +1,94 @@
+.admin-shell {
+  min-height: 100vh;
+  display: grid;
+  grid-template-columns: 250px minmax(0, 1fr);
+}
+
+.admin-sidebar {
+  background: linear-gradient(180deg, #2f241a 0%, #241a12 100%);
+  color: #f9ece1;
+  padding: 20px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.admin-brand {
+  color: #fff6ef;
+  text-decoration: none;
+  font-family: "Montserrat", sans-serif;
+  font-weight: 700;
+  font-size: 18px;
+}
+
+.admin-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.admin-nav__item {
+  display: block;
+  border-radius: 10px;
+  padding: 10px 12px;
+  color: #f9ece1;
+  text-decoration: none;
+  transition: 0.18s ease;
+}
+
+.admin-nav__item:hover,
+.admin-nav__item.is-active {
+  background: rgba(255, 255, 255, 0.14);
+  color: #fffaf5;
+}
+
+.admin-logout-form {
+  margin-top: 8px;
+}
+
+.admin-logout-btn {
+  width: 100%;
+  border: 1px solid rgba(255, 255, 255, 0.34);
+  background: transparent;
+  color: #fff;
+  border-radius: 10px;
+  padding: 10px 12px;
+  cursor: pointer;
+}
+
+.admin-back-link {
+  margin-top: auto;
+  display: block;
+  text-decoration: none;
+  color: #f9ece1;
+  border: 1px solid rgba(255, 255, 255, 0.34);
+  border-radius: 10px;
+  padding: 10px 12px;
+  text-align: center;
+}
+
+.admin-back-link:hover {
+  background: rgba(255, 255, 255, 0.14);
+  color: #fffaf5;
+}
+
+.admin-main {
+  padding: 18px 20px 30px;
+}
+
+.admin-topbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 18px;
+}
+
+.admin-title {
+  margin: 0;
+  font-family: "Montserrat", sans-serif;
+  font-size: 24px;
+}
+
+.admin-user {
+  color: var(--muted);
+}

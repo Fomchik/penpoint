@@ -152,17 +152,26 @@
         const variantAttr = button.getAttribute('data-variant-id');
         const variantId = variantAttr !== null && variantAttr !== '' ? (parseInt(variantAttr, 10) || 0) : null;
         let quantity = 1;
+        let attributes = {};
 
         const productPage = button.closest('.product-page');
         if (productPage) {
             const qtyInput = productPage.querySelector('.product-page__qty-input');
             quantity = Math.max(1, parseInt(qtyInput && qtyInput.value ? qtyInput.value : '1', 10) || 1);
+            productPage.querySelectorAll('.product-page__variant-option.is-active').forEach(function (option) {
+                const code = String(option.getAttribute('data-option-code') || '').trim();
+                const value = String(option.getAttribute('data-option-value') || '').trim();
+                if (code !== '' && value !== '') {
+                    attributes[code] = value;
+                }
+            });
         }
 
         return {
             product_id: productId,
             variant_id: variantId,
-            quantity: quantity
+            quantity: quantity,
+            attributes: attributes
         };
     }
 

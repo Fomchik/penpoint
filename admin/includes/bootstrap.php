@@ -47,11 +47,7 @@ function admin_get_flash(): ?array
 
 function admin_safe_int($value, int $default = 0): int
 {
-    if (is_numeric($value)) {
-        return (int)$value;
-    }
-
-    return $default;
+    return is_numeric($value) ? (int)$value : $default;
 }
 
 function admin_log_error(string $context, Throwable $exception): void
@@ -62,8 +58,8 @@ function admin_log_error(string $context, Throwable $exception): void
 function admin_get_uploads_dir(): string
 {
     $dir = dirname(__DIR__, 2) . '/uploads';
-    if (!is_dir($dir)) {
-        @mkdir($dir, 0755, true);
+    if (!is_dir($dir) && !mkdir($dir, 0755, true) && !is_dir($dir)) {
+        throw new RuntimeException(sprintf('Directory "%s" was not created', $dir));
     }
 
     return $dir;
@@ -87,8 +83,9 @@ function admin_public_upload_dir(string $group, string $subPath = ''): array
     $subPath = trim($subPath, '/');
     $relative = '/assets/' . $group . ($subPath !== '' ? '/' . $subPath : '');
     $absolute = dirname(__DIR__, 2) . str_replace('/', DIRECTORY_SEPARATOR, $relative);
-    if (!is_dir($absolute)) {
-        @mkdir($absolute, 0755, true);
+    
+    if (!is_dir($absolute) && !mkdir($absolute, 0755, true) && !is_dir($absolute)) {
+         throw new RuntimeException(sprintf('Directory "%s" was not created', $absolute));
     }
 
     return [$absolute, $relative];
@@ -120,26 +117,22 @@ function admin_handle_image_upload(array $file, array $options = []): ?string
     if (!isset($allowed[$mime])) {
         throw new RuntimeException('Допустимы только JPG, PNG и WEBP.');
     }
+    if (@getimagesize((string)$file['tmp_name']) === false) {
+        throw new RuntimeException('Файл не является валидным изображением.');
+    }
 
     $ext = $allowed[$mime];
     $target = (string)($options['target'] ?? 'uploads');
     $prefix = admin_slugify((string)($options['prefix'] ?? 'image'));
     $subPath = trim((string)($options['sub_path'] ?? ''), '/');
+    $name = $prefix . '_' . date('Ymd_His') . '_' . bin2hex(random_bytes(6)) . '.' . $ext;
 
-    if ($target === 'product_images') {
-        $subPath = $subPath !== '' ? $subPath : ('misc/' . date('Y/m'));
-        [$baseDir, $basePath] = admin_public_upload_dir('product_images', $subPath);
-        $name = $prefix . '_' . date('Ymd_His') . '_' . bin2hex(random_bytes(6)) . '.' . $ext;
+    if (in_array($target, ['product_images', 'banners'], true)) {
+        $finalSubPath = $subPath !== '' ? $subPath : ('misc/' . date('Y/m'));
+        [$baseDir, $basePath] = admin_public_upload_dir($target, $finalSubPath);
         $destination = $baseDir . DIRECTORY_SEPARATOR . $name;
-        $publicPath = $basePath . '/' . $name;
-    } elseif ($target === 'banners') {
-        $subPath = $subPath !== '' ? $subPath : ('misc/' . date('Y/m'));
-        [$baseDir, $basePath] = admin_public_upload_dir('banners', $subPath);
-        $name = $prefix . '_' . date('Ymd_His') . '_' . bin2hex(random_bytes(6)) . '.' . $ext;
-        $destination = $baseDir . DIRECTORY_SEPARATOR . $name;
-        $publicPath = $basePath . '/' . $name;
+        $publicPath = rtrim($basePath, '/') . '/' . $name;
     } else {
-        $name = 'upload_' . date('Ymd_His') . '_' . bin2hex(random_bytes(6)) . '.' . $ext;
         $destination = admin_get_uploads_dir() . '/' . $name;
         $publicPath = '/uploads/' . $name;
     }
