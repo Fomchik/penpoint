@@ -34,6 +34,9 @@ function setGeocache(address, coords, preciseAddress) {
 function loadYandexMapsScript() {
   if (window.ymaps) return Promise.resolve(window.ymaps);
   if (mapsScriptPromise) return mapsScriptPromise;
+  if (!YANDEX_MAPS_SRC) {
+    return Promise.reject(new Error('YANDEX_MAPS_SRC is empty'));
+  }
 
   mapsScriptPromise = new Promise((resolve, reject) => {
     const existing = document.querySelector('script[data-penpoint-yandex-maps="1"]');
@@ -70,6 +73,15 @@ async function geocodeAddress(address) {
     if (!geoObject) return null;
     const coords = geoObject.geometry.getCoordinates();
     const preciseAddress = geoObject.getAddressLine();
+    const city = String(geoObject.getLocalities ? (geoObject.getLocalities()[0] || '') : '').trim();
+    const addressLower = preciseAddress.toLowerCase();
+    if (
+      city &&
+      city.toLowerCase() !== TARGET_CITY.toLowerCase() &&
+      !addressLower.includes(TARGET_CITY.toLowerCase())
+    ) {
+      return null;
+    }
     setGeocache(query, coords, preciseAddress);
     return { coords, address: preciseAddress };
   } catch (e) {
@@ -92,8 +104,22 @@ export async function createMapController(containerId) {
   let deliveryPlacemark = null;
   let selectedPickupPoint = null;
   const pickupPlacemarks = {};
+  const mapContainerNode = document.getElementById(containerId);
 
-  await loadYandexMapsScript();
+  function showMapFallback(message) {
+    if (!mapContainerNode) return;
+    mapContainerNode.innerHTML =
+      '<div class="checkout-map-fallback">' +
+      (message || 'Карта временно недоступна. Укажите адрес вручную или выберите пункт из списка.') +
+      '</div>';
+  }
+
+  try {
+    await loadYandexMapsScript();
+  } catch (e) {
+    showMapFallback('Карта временно недоступна. Укажите адрес вручную или выберите пункт из списка.');
+    throw e;
+  }
   await new Promise((resolve) => {
     ymaps.ready(resolve);
   });

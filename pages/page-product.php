@@ -23,8 +23,27 @@ $colors = $product ? get_product_colors($product['id']) : [];
 $needs_color_panel = $product ? product_needs_color_panel($product['id']) : false;
 $product_options = $product ? get_product_options_for_product((int)$product['id']) : [];
 $product_images = $product ? app_fetch_product_images((int)$product['id']) : [];
-$initial_state = $product ? build_dynamic_product_state($product, [], $product_images) : [];
+$product_category_names = $product ? product_fetch_category_names($pdo, (int)$product['id']) : [];
+$product_option_catalog_map = function_exists('product_option_catalog') ? product_option_catalog() : [];
+$initial_selections = [];
+if ($product && !empty($product_options)) {
+    foreach ($product_options as $option) {
+        $code = trim((string)($option['code'] ?? ''));
+        $values = (array)($option['values'] ?? []);
+        if ($code === '' || $values === []) {
+            continue;
+        }
+        $firstValue = trim((string)$values[0]);
+        if ($firstValue === '') {
+            continue;
+        }
+        $initial_selections[$code] = $firstValue;
+    }
+}
+$initial_state = $product ? build_dynamic_product_state($product, $initial_selections, $product_images) : [];
 $characteristics = $product ? product_characteristics_fetch($pdo, (int)$product['id']) : [];
+$has_static_specs = !empty($characteristics);
+$has_dynamic_specs = !empty($initial_state['attributes']) && is_array($initial_state['attributes']);
 $related_products = $product ? enrich_products_with_discounts(get_related_products($product['id'], 3)) : [];
 $reviews = $product ? reviews_fetch_product($pdo, (int)$product['id']) : [];
 
@@ -191,7 +210,14 @@ try {
                                     <table class="product-page__spec-table">
                                         <tr>
                                             <td class="product-page__spec-name">Категория</td>
-                                            <td class="product-page__spec-value"><?php echo htmlspecialchars($product['category_name'] ?? 'Не указана'); ?></td>
+                                            <td class="product-page__spec-value">
+                                                <?php
+                                                    $categoriesText = $product_category_names !== []
+                                                        ? implode(', ', $product_category_names)
+                                                        : (string)($product['category_name'] ?? 'Не указана');
+                                                    echo htmlspecialchars($categoriesText);
+                                                ?>
+                                            </td>
                                         </tr>
                                         <?php if (!empty($characteristics)): ?>
                                             <tbody>
@@ -206,12 +232,21 @@ try {
                                         <tbody data-product-spec-attributes>
                                             <?php if (!empty($initial_state['attributes']) && is_array($initial_state['attributes'])): ?>
                                                 <?php foreach ($initial_state['attributes'] as $attributeName => $attributeValue): ?>
+                                                    <?php
+                                                        $attribute_key = mb_strtolower(trim((string)$attributeName), 'UTF-8');
+                                                        $attribute_label = $product_option_catalog_map[$attribute_key] ?? (string)$attributeName;
+                                                    ?>
                                                     <tr>
-                                                        <td class="product-page__spec-name"><?php echo htmlspecialchars((string)$attributeName); ?></td>
+                                                        <td class="product-page__spec-name"><?php echo htmlspecialchars((string)$attribute_label); ?></td>
                                                         <td class="product-page__spec-value"><?php echo htmlspecialchars((string)$attributeValue); ?></td>
                                                     </tr>
                                                 <?php endforeach; ?>
                                             <?php endif; ?>
+                                        </tbody>
+                                        <tbody data-product-spec-empty data-static-specs="<?php echo $has_static_specs ? '1' : '0'; ?>"<?php echo ($has_static_specs || $has_dynamic_specs) ? ' hidden' : ''; ?>>
+                                            <tr>
+                                                <td class="product-page__spec-value" colspan="2">Характеристики не указаны.</td>
+                                            </tr>
                                         </tbody>
                                     </table>
                                 </div>

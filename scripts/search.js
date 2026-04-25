@@ -10,7 +10,7 @@
         const searchForm = document.getElementById('header-search-form');
         const searchInput = document.querySelector('.header__search-input');
 
-        if (!searchToggle || !searchContainer) return;
+        if (!searchToggle || !searchContainer || !searchForm) return;
 
         searchToggle.addEventListener('click', function(e) {
             e.preventDefault();
@@ -26,6 +26,19 @@
             if (searchInput && !searchInput.value.trim()) {
                 e.preventDefault();
                 searchContainer.classList.remove('header__search--expanded');
+
+                const action = searchForm.getAttribute('action') || window.location.pathname;
+                const target = new URL(action, window.location.origin);
+                const params = new URLSearchParams();
+                const formData = new FormData(searchForm);
+                formData.forEach(function(value, key) {
+                    const normalized = String(value || '').trim();
+                    if (normalized !== '' && key !== 'q') {
+                        params.append(key, normalized);
+                    }
+                });
+                const nextUrl = target.pathname + (params.toString() ? '?' + params.toString() : '');
+                window.location.assign(nextUrl);
             }
         });
 

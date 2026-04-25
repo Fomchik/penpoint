@@ -83,7 +83,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['request_reset'])) {
     app_validate_csrf_or_fail();
 
     $email = trim((string)($_POST['reset_email'] ?? ''));
-    if ($email === '' || !filter_var($email, FILTER_VALIDATE_EMAIL)) {
+    $reset_honeypot = trim((string)($_POST['company'] ?? ''));
+    if ($reset_honeypot !== '') {
+        auth_audit_log($pdo, 'password_reset_request', false, null, $email !== '' ? $email : null, 'Honeypot filled');
+        $success = 'Если email найден, ссылка на сброс уже отправлена.';
+    } elseif ($email === '' || !filter_var($email, FILTER_VALIDATE_EMAIL)) {
         $error = 'Укажите корректный email.';
     } elseif (!auth_rate_limit_allow($pdo, 'password_reset_request', auth_get_client_ip(), 5, 300)) {
         $error = 'Слишком много запросов. Попробуйте позже.';
@@ -94,10 +98,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['request_reset'])) {
             $user = $stmt->fetch();
 
             if ($user) {
-                $token = auth_create_token($pdo, 'password_reset_tokens', (int)$user['id'], 3600);
-                $link = auth_base_url() . '/pages/login.php?reset=' . urlencode($token);
-                auth_send_link_email((string)$user['email'], 'Сброс пароля Канцария', 'Сброс пароля', $link);
-                auth_audit_log($pdo, 'password_reset_request', true, (int)$user['id'], (string)$user['email']);
+                $userRateAllowed = auth_rate_limit_allow(
+                    $pdo,
+                    'password_reset_request_user',
+                    auth_get_client_ip(),
+                    5,
+                    900,
+                    (int)$user['id']
+                );
+
+                if ($userRateAllowed) {
+                    $token = auth_create_token($pdo, 'password_reset_tokens', (int)$user['id'], 3600);
+                    $link = auth_base_url() . '/pages/login.php?reset=' . urlencode($token);
+                    auth_send_link_email((string)$user['email'], 'РЎР±СЂРѕСЃ РїР°СЂРѕР»СЏ РљР°РЅС†Р°СЂРёСЏ', 'РЎР±СЂРѕСЃ РїР°СЂРѕР»СЏ', $link, 1);
+                    auth_audit_log($pdo, 'password_reset_request', true, (int)$user['id'], (string)$user['email']);
+                } else {
+                    auth_audit_log($pdo, 'password_reset_request', false, (int)$user['id'], (string)$user['email'], 'Rate limit by user_id');
+                }
             } else {
                 auth_audit_log($pdo, 'password_reset_request', true, null, $email);
             }
@@ -139,6 +156,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['reset_password'])) {
                 $success = 'Пароль обновлён. Теперь можно войти.';
                 $show_reset_form = false;
                 $reset_token = '';
+                $active_tab = 'login';
             } catch (Throwable $e) {
                 auth_audit_log($pdo, 'password_reset_complete', false, $user_id, null, $e->getMessage());
                 error_log('Password reset complete error: ' . $e->getMessage());
@@ -196,8 +214,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['register'])) {
     $email = trim((string)($_POST['email'] ?? ''));
     $password = (string)($_POST['password'] ?? '');
     $password_confirm = (string)($_POST['password_confirm'] ?? '');
+    $website_honeypot = trim((string)($_POST['website'] ?? ''));
 
-    if ($name === '' || $email === '' || $password === '') {
+    if ($website_honeypot !== '') {
+        auth_audit_log($pdo, 'register', false, null, $email !== '' ? $email : null, 'Honeypot filled');
+        $error = 'Не удалось зарегистрироваться. Попробуйте позже.';
+    } elseif ($name === '' || $email === '' || $password === '') {
         $error = 'Заполните все поля.';
     } elseif (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
         $error = 'Укажите корректный email.';
@@ -233,7 +255,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['register'])) {
                 $user_id = (int)$pdo->lastInsertId();
                 $token = auth_create_token($pdo, 'email_verification_tokens', $user_id, 86400);
                 $link = auth_base_url() . '/pages/login.php?verify=' . urlencode($token);
-                auth_send_link_email($email, 'Подтверждение регистрации Канцария', 'Подтвердите email', $link);
+                auth_send_link_email($email, 'Подтверждение регистрации Канцария', 'Подтвердите email', $link, 24);
                 auth_audit_log($pdo, 'register', true, $user_id, $email);
                 $success = 'Регистрация завершена. Проверьте почту и подтвердите email.';
                 $active_tab = 'login';
@@ -282,6 +304,9 @@ if ($reset_token !== '') {
             <?php endif; ?>
             <?php if ($success): ?>
                 <div class="login-page__success"><?php echo htmlspecialchars($success, ENT_QUOTES, 'UTF-8'); ?></div>
+                <div class="login-page__success-actions">
+                    <button type="button" class="login-page__submit" id="login-success-cta">Войти</button>
+                </div>
             <?php endif; ?>
 
             <form method="post" class="login-page__form <?php echo $active_tab === 'login' ? 'login-page__form--active' : ''; ?>" id="login-form">
@@ -317,6 +342,10 @@ if ($reset_token !== '') {
                     <label class="login-page__label">Подтвердите пароль</label>
                     <input type="password" name="password_confirm" class="login-page__input" required>
                 </div>
+                <div class="login-page__field" style="position:absolute;left:-10000px;top:auto;width:1px;height:1px;overflow:hidden;" aria-hidden="true">
+                    <label class="login-page__label" for="website">Сайт</label>
+                    <input type="text" id="website" name="website" class="login-page__input" tabindex="-1" autocomplete="off">
+                </div>
                 <button type="submit" name="register" class="login-page__submit">Зарегистрироваться</button>
             </form>
 
@@ -343,6 +372,10 @@ if ($reset_token !== '') {
                 <?php else: ?>
                     <form method="post" class="login-page__form login-page__form--active">
                         <?php echo app_csrf_input(); ?>
+                        <div class="login-page__field" style="position:absolute;left:-10000px;top:auto;width:1px;height:1px;overflow:hidden;" aria-hidden="true">
+                            <label class="login-page__label" for="company">Компания</label>
+                            <input type="text" id="company" name="company" class="login-page__input" tabindex="-1" autocomplete="off">
+                        </div>
                         <div class="login-page__field">
                             <label class="login-page__label">Email</label>
                             <input type="email" name="reset_email" class="login-page__input" required>
@@ -365,6 +398,7 @@ if ($reset_token !== '') {
         const resetPanel = document.getElementById('reset-panel');
         const resetToggle = document.querySelector('[data-reset-toggle]');
         const resetClose = document.querySelector('[data-reset-close]');
+        const loginSuccessCta = document.getElementById('login-success-cta');
 
         function switchTab(name) {
             tabs.forEach(function (tab) {
@@ -392,6 +426,15 @@ if ($reset_token !== '') {
         if (resetClose && resetPanel) {
             resetClose.addEventListener('click', function () {
                 resetPanel.classList.remove('login-page__reset-panel--active');
+            });
+        }
+
+        if (loginSuccessCta) {
+            loginSuccessCta.addEventListener('click', function () {
+                switchTab('login');
+                if (resetPanel) {
+                    resetPanel.classList.remove('login-page__reset-panel--active');
+                }
             });
         }
     })();

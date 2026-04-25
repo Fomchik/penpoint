@@ -314,6 +314,11 @@ body {
     background: #b84503;
 }
 
+.checkout-submit.is-loading {
+    opacity: 0.85;
+    cursor: wait;
+}
+
 .checkout-alert {
     margin-bottom: 10px;
     border-radius: 9px;
@@ -539,6 +544,18 @@ body {
     width: 100%;
     height: 100%;
     border: 0;
+}
+
+.checkout-map-fallback {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 100%;
+    padding: 16px;
+    color: #5b524d;
+    font-size: 0.95rem;
+    text-align: center;
+    background: #f6f2ef;
 }
 
 .pickup-map-select-btn {

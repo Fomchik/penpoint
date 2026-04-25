@@ -1,28 +1,33 @@
 (function () {
     'use strict';
 
-    function applyNoValidate(root) {
+    function bindCustomValidation(root) {
         const scope = root && root.querySelectorAll ? root : document;
-        scope.querySelectorAll('form').forEach(function (form) {
-            if (!form.hasAttribute('novalidate')) {
-                form.setAttribute('novalidate', 'novalidate');
+        scope.querySelectorAll('form[novalidate]').forEach(function (form) {
+            if (form.dataset.validationBound === '1') {
+                return;
             }
+            form.dataset.validationBound = '1';
+            form.addEventListener('submit', function (event) {
+                if (typeof form.checkValidity === 'function' && !form.checkValidity()) {
+                    event.preventDefault();
+                    if (typeof form.reportValidity === 'function') {
+                        form.reportValidity();
+                    }
+                }
+            });
         });
     }
 
     function init() {
-        applyNoValidate(document);
+        bindCustomValidation(document);
 
         if ('MutationObserver' in window) {
             const observer = new MutationObserver(function (mutations) {
                 mutations.forEach(function (mutation) {
                     mutation.addedNodes.forEach(function (node) {
                         if (!node || node.nodeType !== 1) return;
-                        if (node.tagName === 'FORM') {
-                            node.setAttribute('novalidate', 'novalidate');
-                            return;
-                        }
-                        applyNoValidate(node);
+                        bindCustomValidation(node);
                     });
                 });
             });

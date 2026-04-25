@@ -2,6 +2,15 @@
 require_once __DIR__ . '/../includes/security.php';
 app_start_session();
 require_once __DIR__ . '/../includes/config.php';
+require_once __DIR__ . '/../includes/cart.php';
+
+$cart_product_ids = [];
+foreach (cart_get_lines() as $cart_line) {
+    $pid = (int)($cart_line['product_id'] ?? 0);
+    if ($pid > 0) {
+        $cart_product_ids[$pid] = true;
+    }
+}
 ?>
 <!DOCTYPE html>
 <html lang="ru">
@@ -33,6 +42,7 @@ require_once __DIR__ . '/../includes/config.php';
                         <span id="cart-head-count" class="cart-count">0 товаров</span>
                     </div>
                     <div class="cart-header__actions">
+                        <button type="button" class="cart-header__action" id="cart-clear">Очистить корзину</button>
                         <button type="button" class="cart-header__action" id="cart-print">Распечатать</button>
                         <button type="button" class="cart-header__action" id="cart-share">Поделиться</button>
                     </div>
@@ -40,6 +50,9 @@ require_once __DIR__ . '/../includes/config.php';
 
                 <div id="cart-empty" class="cart-empty" style="display:none;">
                     Ваша корзина пуста. Добавьте товары из каталога.
+                    <div class="cart-empty__actions">
+                        <a href="/pages/catalog.php" class="cart-empty__link">Перейти в каталог</a>
+                    </div>
                 </div>
 
                 <section id="cart-card" class="cart-card" aria-label="Товары в корзине">
@@ -48,15 +61,20 @@ require_once __DIR__ . '/../includes/config.php';
 
                 <section class="cart-recommended" aria-label="Рекомендуемые товары">
                     <h2 class="cart-recommended__title">Рекомендуемые товары</h2>
-                    <div class="cart-recommended__list">
+                    <div class="cart-recommended__list" id="cart-recommended-list">
                         <?php
-                        $recommended = get_featured_products(4);
+                        $recommended_pool = get_featured_products(12);
+                        $recommended = array_values(array_filter($recommended_pool, static function (array $product) use ($cart_product_ids): bool {
+                            $pid = (int)($product['id'] ?? 0);
+                            return $pid > 0 && !isset($cart_product_ids[$pid]);
+                        }));
+                        $recommended = array_slice($recommended, 0, 4);
                         foreach ($recommended as $product):
                             $image = get_product_image($product['id']);
                             $priceNew = (float)$product['price'];
                             $priceOld = (float)($product['price_old'] ?? $product['price']);
                         ?>
-                            <article class="cart-recommended__item">
+                            <article class="cart-recommended__item" data-recommended-product-id="<?php echo (int)$product['id']; ?>">
                                 <a class="cart-recommended__link" href="/pages/page-product.php?id=<?php echo (int)$product['id']; ?>">
                                     <img src="<?php echo htmlspecialchars($image); ?>" alt="<?php echo htmlspecialchars($product['name']); ?>" loading="lazy">
                                     <div class="cart-recommended__name"><?php echo htmlspecialchars($product['name']); ?></div>
@@ -91,7 +109,7 @@ require_once __DIR__ . '/../includes/config.php';
                     </div>
                 </div>
                 <div id="side-total-old" class="cart-summary__old-price"></div>
-                <a href="/pages/checkout.php" class="cart-summary__button">Перейти к оформлению</a>
+                <a href="/pages/checkout.php" class="cart-summary__button" id="cart-checkout-link">Перейти к оформлению</a>
             </aside>
         </section>
     </main>

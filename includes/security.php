@@ -2,9 +2,18 @@
 
 declare(strict_types=1);
 
+if (!headers_sent()) {
+    ini_set('display_errors', '0');
+    header('X-Frame-Options: SAMEORIGIN');
+    header('X-Content-Type-Options: nosniff');
+}
+
 function app_start_session(): void
 {
     if (session_status() === PHP_SESSION_ACTIVE) {
+        return;
+    }
+    if (headers_sent()) {
         return;
     }
 
@@ -30,6 +39,22 @@ function app_csrf_token(): string
     }
 
     return $_SESSION['app_csrf_token'];
+}
+
+function app_rotate_csrf_token(): string
+{
+    $_SESSION['app_csrf_token'] = bin2hex(random_bytes(32));
+    return $_SESSION['app_csrf_token'];
+}
+
+function app_emit_csrf_token_header(?string $token = null): void
+{
+    if (headers_sent()) {
+        return;
+    }
+
+    $value = $token !== null && $token !== '' ? $token : app_csrf_token();
+    header('X-CSRF-Token: ' . $value);
 }
 
 function app_csrf_input(): string
@@ -66,4 +91,7 @@ function app_validate_csrf_or_fail(): void
         http_response_code(403);
         exit('CSRF validation failed.');
     }
+
+    $newToken = app_rotate_csrf_token();
+    app_emit_csrf_token_header($newToken);
 }

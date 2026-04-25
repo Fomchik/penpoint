@@ -19,7 +19,7 @@ try {
     admin_logout();
 
     // 4. Редирект на страницу логина
-    header('Location: /pages/login.php?logout=success', true, 303);
+    header('Location: /pages/index.php', true, 303);
     exit;
 
 } catch (Throwable $e) {

@@ -40,7 +40,6 @@ window.appResolvePath = window.appResolvePath || function (path) {
     return <?php echo json_encode($footer_base, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES); ?> + String(path || '');
 };
 </script>
-<script src="<?php echo $footer_base; ?>/scripts/guest-cleanup.js"></script>
-<script src="<?php echo $footer_base; ?>/scripts/search.js"></script>
-<script src="<?php echo $footer_base; ?>/scripts/cart.js"></script>
-<script src="<?php echo $footer_base; ?>/scripts/favorites.js"></script>
+<script src="<?php echo $footer_base; ?>/scripts/search.js" defer></script>
+<script src="<?php echo $footer_base; ?>/scripts/cart.js" defer></script>
+<script src="<?php echo $footer_base; ?>/scripts/favorites.js" defer></script>

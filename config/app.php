@@ -61,7 +61,7 @@ if (!defined('APP_UPLOADS_URL')) {
 }
 
 if (!defined('APP_DEFAULT_PRODUCT_IMAGE')) {
-    define('APP_DEFAULT_PRODUCT_IMAGE', BASE_PATH . '/assets/product_images/default.png');
+    define('APP_DEFAULT_PRODUCT_IMAGE', BASE_PATH . '/assets/icons/favicon.svg');
 }
 
 if (!defined('CONTACT_EMAIL')) {

@@ -22,6 +22,17 @@ if (isset($_GET['category']) && is_array($_GET['category'])) {
 }
 $category_ids = array_values($category_ids);
 
+$product_ids = [];
+if (isset($_GET['product_ids']) && is_array($_GET['product_ids'])) {
+    foreach ($_GET['product_ids'] as $pid) {
+        $pid = (int)$pid;
+        if ($pid > 0) {
+            $product_ids[$pid] = $pid;
+        }
+    }
+}
+$product_ids = array_values($product_ids);
+
 $allowed_sorts = ['new', 'price_asc', 'price_desc', 'rating_desc', 'rating_asc'];
 if (!in_array($sort, $allowed_sorts, true)) $sort = 'new';
 
@@ -49,13 +60,27 @@ if ($max_price !== null) {
 }
 if ($category_ids !== []) {
     $placeholders = implode(',', array_fill(0, count($category_ids), '?'));
-    $where[] = "p.category_id IN ($placeholders)";
-    $params = array_merge($params, $category_ids);
+    $where[] = "(p.category_id IN ($placeholders) OR EXISTS (
+        SELECT 1 FROM product_categories pc 
+        WHERE pc.product_id = p.id AND pc.category_id IN ($placeholders)
+    ))";
+    $params = array_merge($params, array_merge($category_ids, $category_ids));
 }
-if ($pickup_only) $where[] = 'p.pickup_available = 1 AND p.stock_quantity > 0';
+if ($product_ids !== []) {
+    $placeholders = implode(',', array_fill(0, count($product_ids), '?'));
+    $where[] = "p.id IN ($placeholders)";
+    $params = array_merge($params, $product_ids);
+}
 if ($sale_only) $where[] = 'p.discount_percent > 0';
 
+// Для самовывоза отдельно считаем
+$where_for_pickup = $where;
+$params_for_pickup = $params;
+
+if ($pickup_only) $where[] = 'p.pickup_available = 1 AND p.stock_quantity > 0';
+
 $where_sql = implode(' AND ', $where);
+
 $stmt_total = $pdo->prepare("SELECT COUNT(*) AS cnt FROM v_product_pricing p WHERE $where_sql");
 $stmt_total->execute($params);
 $total = (int)($stmt_total->fetch()['cnt'] ?? 0);
@@ -78,20 +103,41 @@ $categories = get_categories();
 $sale_products_total = get_active_discounted_products_count();
 $category_counts = [];
 try {
-    $stmt_cat_counts = $pdo->query('SELECT category_id, COUNT(*) AS cnt FROM products WHERE is_active = 1 GROUP BY category_id');
+    $stmt_cat_counts = $pdo->query(
+        "SELECT t.category_id, COUNT(DISTINCT t.product_id) AS cnt
+         FROM (
+             SELECT p.id AS product_id, p.category_id
+             FROM products p
+             WHERE p.is_active = 1
+             UNION ALL
+             SELECT p.id AS product_id, pc.category_id
+             FROM products p
+             INNER JOIN product_categories pc ON pc.product_id = p.id
+             WHERE p.is_active = 1
+         ) t
+         GROUP BY t.category_id"
+    );
     foreach ($stmt_cat_counts->fetchAll() ?: [] as $row) {
         $category_counts[(int)$row['category_id']] = (int)$row['cnt'];
     }
-} catch (Throwable $e) { error_log($e->getMessage()); }
+} catch (Throwable $e) { 
+    error_log($e->getMessage()); 
+}
 
 $pickup_total = 0;
 try {
-    $stmt_pickup = $pdo->query('SELECT COUNT(*) AS cnt FROM v_product_pricing WHERE is_active = 1 AND pickup_available = 1 AND stock_quantity > 0');
+    $pickup_where_sql = implode(' AND ', array_merge($where_for_pickup, ['p.pickup_available = 1 AND p.stock_quantity > 0']));
+    $stmt_pickup = $pdo->prepare("SELECT COUNT(*) AS cnt FROM v_product_pricing p WHERE $pickup_where_sql");
+    $stmt_pickup->execute($params_for_pickup);
     $pickup_total = (int)($stmt_pickup->fetch()['cnt'] ?? 0);
-} catch (Throwable $e) { error_log($e->getMessage()); }
+} catch (Throwable $e) { 
+    error_log($e->getMessage()); 
+}
 
 $is_ajax = !empty($_SERVER['HTTP_X_REQUESTED_WITH']) && strtolower((string)$_SERVER['HTTP_X_REQUESTED_WITH']) === 'xmlhttprequest';
-if ($is_ajax) ob_clean();
+if ($is_ajax && ob_get_level() > 0) {
+    ob_clean();
+}
 
 function build_query(array $overrides = []): string {
     $query = $_GET;
@@ -128,7 +174,7 @@ if (!$is_ajax): ?>
                 <div class="filters__title">Доставка</div>
                 <label class="filters__check">
                     <input type="checkbox" name="pickup" value="1" <?php echo $pickup_only ? 'checked' : ''; ?>>
-                    <span>Самовывоз сегодня (<?php echo $pickup_total; ?>)</span>
+                    <span data-pickup-counter>Самовывоз сегодня (<?php echo $pickup_total; ?>)</span>
                 </label>
             </div>
             <div class="filters__section">
@@ -161,11 +207,15 @@ if (!$is_ajax): ?>
                     <?php endforeach; ?>
                 </div>
             </div>
+            <div class="filters__actions">
+                <button type="button" class="filters__reset" id="catalog-filters-reset">Сбросить фильтры</button>
+            </div>
         </form>
     </aside>
 <?php endif; ?>
 
     <section class="catalog__content" id="catalog-content">
+        <div data-catalog-meta data-pickup-total="<?php echo (int)$pickup_total; ?>" hidden></div>
         <div class="catalog__toolbar">
             <form method="get" class="catalog__sort" id="catalog-sort-form" action="/pages/catalog.php">
                 <select name="sort" class="catalog__sort-select">

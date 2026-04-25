@@ -30,6 +30,83 @@ function cart_normalize_attributes(array $attributes): array
     return $normalized;
 }
 
+function cart_get_product_cached(int $productId): ?array
+{
+    static $cache = [];
+    if (array_key_exists($productId, $cache)) {
+        return $cache[$productId];
+    }
+
+    $product = get_product_by_id($productId);
+    $cache[$productId] = is_array($product) ? $product : null;
+    return $cache[$productId];
+}
+
+function cart_validate_attributes_for_product(int $productId, array $attributes): bool
+{
+    if ($attributes === []) {
+        return true;
+    }
+
+    if (!function_exists('get_product_options_for_product')) {
+        return true;
+    }
+
+    $options = get_product_options_for_product($productId);
+    if (!is_array($options) || $options === []) {
+        return false;
+    }
+
+    $aliases = [];
+    foreach ($options as $option) {
+        $values = array_values(array_filter(array_map(
+            static fn($item): string => trim((string)$item),
+            (array)($option['values'] ?? [])
+        ), static fn(string $item): bool => $item !== ''));
+        if ($values === []) {
+            continue;
+        }
+
+        $code = mb_strtolower(trim((string)($option['code'] ?? '')), 'UTF-8');
+        $label = mb_strtolower(trim((string)($option['label'] ?? '')), 'UTF-8');
+        if ($code !== '') {
+            $aliases[$code] = $values;
+        }
+        if ($label !== '') {
+            $aliases[$label] = $values;
+        }
+    }
+
+    if ($aliases === []) {
+        return false;
+    }
+
+    foreach ($attributes as $key => $value) {
+        $attributeKey = mb_strtolower(trim((string)$key), 'UTF-8');
+        $attributeValue = trim((string)$value);
+        if ($attributeKey === '' || $attributeValue === '') {
+            return false;
+        }
+
+        if (!isset($aliases[$attributeKey])) {
+            return false;
+        }
+
+        $isAllowedValue = false;
+        foreach ($aliases[$attributeKey] as $allowedValue) {
+            if (mb_strtolower($allowedValue, 'UTF-8') === mb_strtolower($attributeValue, 'UTF-8')) {
+                $isAllowedValue = true;
+                break;
+            }
+        }
+        if (!$isAllowedValue) {
+            return false;
+        }
+    }
+
+    return true;
+}
+
 function cart_normalize_lines(array $lines): array
 {
     $normalized = [];
@@ -90,6 +167,9 @@ function cart_add_item(int $productId, ?int $variantId, int $quantity = 1, array
 {
     $quantity = max(1, $quantity);
     $normalizedAttributes = cart_normalize_attributes($attributes);
+    if ($variantId === null && !cart_validate_attributes_for_product($productId, $normalizedAttributes)) {
+        throw new RuntimeException('Invalid product attributes.');
+    }
     $stockLimit = cart_stock_limit($productId, $variantId, $normalizedAttributes);
     if ($stockLimit <= 0) {
         throw new RuntimeException('Товар отсутствует на складе.');
@@ -132,7 +212,7 @@ function cart_stock_limit(int $productId, ?int $variantId, array $attributes = [
         return max(0, (int)($variant['stock_quantity'] ?? 0));
     }
 
-    $product = get_product_by_id($productId);
+    $product = cart_get_product_cached($productId);
     if (!$product) {
         return 0;
     }
@@ -160,8 +240,14 @@ function cart_update_item(int $productId, ?int $variantId, int $quantity): array
         }
 
         if ($quantity > 0) {
-            $line['quantity'] = max(1, $quantity);
-            $lines[] = $line;
+            $lineAttributes = isset($line['attributes']) && is_array($line['attributes'])
+                ? cart_normalize_attributes($line['attributes'])
+                : [];
+            $stockLimit = cart_stock_limit($productId, $variantId, $lineAttributes);
+            if ($stockLimit > 0) {
+                $line['quantity'] = min(max(1, $quantity), $stockLimit);
+                $lines[] = $line;
+            }
         }
     }
 
@@ -186,6 +272,7 @@ function cart_build_item_state(array $line): array
             'variant_id' => $variantId,
             'quantity' => $quantity,
             'available' => false,
+            'stock_limit' => 0,
             'title' => 'Недоступный товар',
             'variant_label' => '',
             'attributes' => [],
@@ -214,6 +301,7 @@ function cart_build_item_state(array $line): array
                 'variant_id' => $variantId,
                 'quantity' => $quantity,
                 'available' => false,
+                'stock_limit' => 0,
                 'title' => (string)$product['name'],
                 'variant_label' => 'Вариант недоступен',
                 'attributes' => [],
@@ -237,6 +325,7 @@ function cart_build_item_state(array $line): array
     $basePrice = (float)$state['base_price'];
     $stockLimit = cart_stock_limit($productId, $variantId, $attributes);
     $availableQty = min($quantity, $stockLimit);
+    $effectiveQty = $availableQty > 0 ? $availableQty : $quantity;
     $displayAttributes = function_exists('product_humanize_attributes')
         ? product_humanize_attributes($productId, $attributes)
         : $attributes;
@@ -244,7 +333,7 @@ function cart_build_item_state(array $line): array
     return [
         'product_id' => $productId,
         'variant_id' => $variantId,
-        'quantity' => $availableQty > 0 ? $availableQty : $quantity,
+        'quantity' => $effectiveQty,
         'available' => (bool)$state['in_stock'] && $stockLimit > 0,
         'stock_limit' => $stockLimit,
         'title' => (string)$product['name'],
@@ -255,8 +344,8 @@ function cart_build_item_state(array $line): array
         'discount_percent' => (int)($state['discount_percent'] ?? 0),
         'promotion_id' => $state['promotion_id'] ?? null,
         'image' => (string)($state['image'] ?? ($images[0] ?? APP_DEFAULT_PRODUCT_IMAGE)),
-        'line_total' => round($unitPrice * $quantity, 2),
-        'line_base_total' => round($basePrice * $quantity, 2),
+        'line_total' => round($unitPrice * $effectiveQty, 2),
+        'line_base_total' => round($basePrice * $effectiveQty, 2),
     ];
 }
 

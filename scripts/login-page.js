@@ -10,7 +10,7 @@
     }
 
     function ensureNoValidateOnAllForms() {
-        document.querySelectorAll('form').forEach(function (form) {
+        document.querySelectorAll('.login-page form, .login-page__form, .login-page__reset-panel form').forEach(function (form) {
             form.setAttribute('novalidate', 'novalidate');
         });
     }
@@ -97,7 +97,7 @@
             setFieldError(passwordInput, 'Введите пароль.');
             isValid = false;
         } else if (!validatePasswordStrength(password)) {
-            setFieldError(passwordInput, 'Минимум 8 символов, 1 заглавная буква, 1 цифра и 1 спецсимвол.');
+            setFieldError(passwordInput, 'Минимум 8 символов, 1 заглавная, 1 цифра и спецсимвол (!@#$%^&* и др.).');
             isValid = false;
         }
 
@@ -124,7 +124,7 @@
             setFieldError(passwordInput, 'Введите новый пароль.');
             isValid = false;
         } else if (!validatePasswordStrength(password)) {
-            setFieldError(passwordInput, 'Минимум 8 символов, 1 заглавная буква, 1 цифра и 1 спецсимвол.');
+            setFieldError(passwordInput, 'Минимум 8 символов, 1 заглавная, 1 цифра и спецсимвол (!@#$%^&* и др.).');
             isValid = false;
         }
 

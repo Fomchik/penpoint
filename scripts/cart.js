@@ -96,6 +96,10 @@
         }, requestOptions.headers || {});
 
         return fetch(resolvePath(url), requestOptions).then(function (response) {
+            const nextCsrfToken = response.headers ? response.headers.get('X-CSRF-Token') : '';
+            if (typeof nextCsrfToken === 'string' && nextCsrfToken.trim() !== '') {
+                window.APP_CSRF_TOKEN = nextCsrfToken.trim();
+            }
             return response.json().catch(function () {
                 return null;
             }).then(function (payload) {
@@ -135,8 +139,27 @@
             }, 300);
         }
 
+        let remaining = 2500;
+        let hideAt = Date.now() + remaining;
+        let hideTimer = setTimeout(hide, remaining);
+
+        function clearHideTimer() {
+            if (hideTimer) {
+                clearTimeout(hideTimer);
+                hideTimer = null;
+            }
+        }
+
         notification.addEventListener('click', hide);
-        setTimeout(hide, 2500);
+        notification.addEventListener('mouseenter', function () {
+            remaining = Math.max(0, hideAt - Date.now());
+            clearHideTimer();
+        });
+        notification.addEventListener('mouseleave', function () {
+            clearHideTimer();
+            hideAt = Date.now() + remaining;
+            hideTimer = setTimeout(hide, remaining);
+        });
     }
 
     function setButtonBusy(button, busy) {
@@ -186,6 +209,59 @@
         }).then(function (data) {
             syncState(data.state || null);
             return data.state || null;
+        });
+    }
+
+    function preflightProductState(button, payload) {
+        const productPage = button ? button.closest('.product-page') : null;
+        if (!productPage) {
+            return Promise.resolve(payload);
+        }
+
+        const stateUrl = String(productPage.getAttribute('data-product-state-url') || '').trim();
+        const productId = parseInt(productPage.getAttribute('data-product-id'), 10) || 0;
+        if (!stateUrl || productId <= 0) {
+            return Promise.resolve(payload);
+        }
+
+        const selections = {};
+        productPage.querySelectorAll('.product-page__variant-option.is-active').forEach(function (option) {
+            const code = String(option.getAttribute('data-option-code') || '').trim();
+            const value = String(option.getAttribute('data-option-value') || '').trim();
+            if (code !== '' && value !== '') {
+                selections[code] = value;
+            }
+        });
+
+        return fetch(resolvePath(stateUrl), {
+            method: 'POST',
+            credentials: 'same-origin',
+            headers: {
+                'Content-Type': 'application/json',
+                'Accept': 'application/json'
+            },
+            body: JSON.stringify({
+                product_id: productId,
+                selections: selections
+            })
+        }).then(function (response) {
+            return response.json().catch(function () {
+                return null;
+            }).then(function (state) {
+                if (!response.ok || !state || typeof state !== 'object') {
+                    throw new Error('Не удалось проверить выбранный вариант товара.');
+                }
+
+                const hasUnavailableVariant = Boolean(state.has_variants) && (state.variant_id === null || state.variant_id === undefined);
+                if (hasUnavailableVariant || !Boolean(state.in_stock)) {
+                    throw new Error('Выбранный вариант больше недоступен. Выберите другой.');
+                }
+
+                return Object.assign({}, payload, {
+                    variant_id: state.variant_id === null || state.variant_id === undefined ? null : (parseInt(state.variant_id, 10) || null),
+                    attributes: selections
+                });
+            });
         });
     }
 
@@ -239,9 +315,13 @@
             }
 
             setButtonBusy(button, true);
-            addItem(payload).then(function () {
+            preflightProductState(button, payload).then(function (actualPayload) {
+                return addItem(actualPayload).then(function () {
+                    return actualPayload;
+                });
+            }).then(function (actualPayload) {
                 button.classList.add('is-added');
-                showNotification(payload.quantity > 1 ? 'Товары добавлены в корзину.' : 'Товар добавлен в корзину.');
+                showNotification(actualPayload.quantity > 1 ? 'Товары добавлены в корзину.' : 'Товар добавлен в корзину.');
             }).catch(function (error) {
                 alert(error.message || 'Не удалось добавить товар в корзину.');
             }).finally(function () {
@@ -257,7 +337,10 @@
 
         window.addEventListener('storage', function (event) {
             if (event.key === CART_STORAGE_KEY) {
-                updateCartBadge();
+                loadState().catch(function () {
+                    updateCartBadge();
+                    dispatchCartUpdated(null);
+                });
             }
         });
     }

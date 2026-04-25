@@ -64,6 +64,21 @@ function app_feedback_insert(PDO $pdo, array $payload): int
     if ($name === '' || $email === '' || $message === '') {
         throw new RuntimeException('Feedback payload is incomplete.');
     }
+    if (mb_strlen($name, 'UTF-8') > 100) {
+        throw new RuntimeException('Feedback name is too long.');
+    }
+    if (mb_strlen($email, 'UTF-8') > 150) {
+        throw new RuntimeException('Feedback email is too long.');
+    }
+    if ($phone !== '' && mb_strlen($phone, 'UTF-8') > 30) {
+        throw new RuntimeException('Feedback phone is too long.');
+    }
+    if ($subject !== '' && mb_strlen($subject, 'UTF-8') > 255) {
+        throw new RuntimeException('Feedback subject is too long.');
+    }
+    if (mb_strlen($message, 'UTF-8') > 5000) {
+        throw new RuntimeException('Feedback message is too long.');
+    }
 
     if (!in_array($status, ['new', 'in_progress', 'done'], true)) {
         $status = 'new';
@@ -80,8 +95,31 @@ function app_feedback_insert(PDO $pdo, array $payload): int
         $subject !== '' ? mb_substr($subject, 0, 255, 'UTF-8') : null,
         $message,
         $status,
-        $status === 'new' ? null : date('Y-m-d H:i:s'),
+        date('Y-m-d H:i:s'),
     ]);
 
     return (int)$pdo->lastInsertId();
+}
+
+function app_feedback_update_status(PDO $pdo, int $feedbackId, string $status): bool
+{
+    app_feedback_ensure_schema($pdo);
+
+    $status = trim($status);
+    if (!in_array($status, ['new', 'in_progress', 'done'], true)) {
+        return false;
+    }
+
+    try {
+        $stmt = $pdo->prepare(
+            'UPDATE feedback
+             SET status = ?, status_updated_at = NOW()
+             WHERE id = ? LIMIT 1'
+        );
+        $stmt->execute([$status, $feedbackId]);
+        return $stmt->rowCount() > 0;
+    } catch (Throwable $e) {
+        error_log('Feedback status update error: ' . $e->getMessage());
+        return false;
+    }
 }

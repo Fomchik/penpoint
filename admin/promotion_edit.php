@@ -75,13 +75,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             if ($form['promotion_type'] === 'seasonal') {
                 $uploadedMain = admin_handle_image_upload($_FILES['image_main'] ?? [], [
                     'target' => 'banners',
-                    'sub_path' => 'seasonal/main/' . date('Y/m'),
-                    'prefix' => 'promo-main',
+                    'sub_path' => (string)$promotionId,
+                    'file_name' => 'main',
                 ]);
                 $uploadedList = admin_handle_image_upload($_FILES['image_list'] ?? [], [
                     'target' => 'banners',
-                    'sub_path' => 'seasonal/list/' . date('Y/m'),
-                    'prefix' => 'promo-list',
+                    'sub_path' => (string)$promotionId,
+                    'file_name' => 'list',
                 ]);
                 if ($uploadedMain !== null) $newImageMain = $uploadedMain;
                 if ($uploadedList !== null) $newImageList = $uploadedList;
@@ -92,8 +92,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             } else {
                 $uploadedImage = admin_handle_image_upload($_FILES['image'] ?? [], [
                     'target' => 'banners',
-                    'sub_path' => 'regular/' . date('Y/m'),
-                    'prefix' => 'promo-regular',
+                    'sub_path' => (string)$promotionId,
+                    'file_name' => 'list',
                 ]);
                 if ($uploadedImage !== null) $newImage = $uploadedImage;
                 if ($newImage === '') {
@@ -131,6 +131,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             ]);
             admin_promotion_sync_links($pdo, $promotionId, $form['apply_scope'], $form['apply_scope'] === 'products' ? $selectedProducts : $selectedCategories);
             $pdo->commit();
+
+            if ($form['promotion_type'] === 'regular') {
+                if ($currentImageMain !== '' && $currentImageMain !== $newImage) {
+                    $oldMainAbs = admin_public_path_to_absolute($currentImageMain);
+                    if (is_file($oldMainAbs)) {
+                        @unlink($oldMainAbs);
+                    }
+                }
+                if ($currentImageList !== '' && $currentImageList !== $newImage) {
+                    $oldListAbs = admin_public_path_to_absolute($currentImageList);
+                    if (is_file($oldListAbs)) {
+                        @unlink($oldListAbs);
+                    }
+                }
+            }
 
             admin_set_flash('success', 'Акция обновлена.');
             admin_redirect('/admin/promotions.php');

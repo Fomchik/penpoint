@@ -17,6 +17,7 @@ function product_options_ensure_schema(PDO $pdo): void
                 product_id INT UNSIGNED NOT NULL,
                 name VARCHAR(120) NOT NULL,
                 code VARCHAR(80) NOT NULL,
+                use_for_variants TINYINT(1) NOT NULL DEFAULT 1,
                 sort_order INT UNSIGNED NOT NULL DEFAULT 0,
                 created_at TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP,
                 updated_at TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -87,8 +88,11 @@ function product_options_ensure_schema(PDO $pdo): void
         foreach ($pdo->query('SHOW COLUMNS FROM product_parameters') ?: [] as $column) {
             $columns[(string)$column['Field']] = true;
         }
+        if (!isset($columns['use_for_variants'])) {
+            $pdo->exec("ALTER TABLE product_parameters ADD COLUMN use_for_variants TINYINT(1) NOT NULL DEFAULT 1 AFTER code");
+        }
         if (!isset($columns['image_path'])) {
-            $pdo->exec("ALTER TABLE product_parameters ADD COLUMN image_path VARCHAR(255) DEFAULT '' AFTER values_text");
+            $pdo->exec("ALTER TABLE product_parameters ADD COLUMN image_path VARCHAR(255) DEFAULT '' AFTER sort_order");
         }
 
         $columns = [];

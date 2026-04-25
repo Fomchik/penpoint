@@ -300,12 +300,26 @@ function get_active_discounted_products_count(): int
 function get_product_image($productId): string
 {
     $images = app_fetch_product_images((int)$productId);
-    return htmlspecialchars((string)($images[0] ?? APP_DEFAULT_PRODUCT_IMAGE), ENT_QUOTES, 'UTF-8');
+    $candidate = (string)($images[0] ?? APP_DEFAULT_PRODUCT_IMAGE);
+    $rootDir = dirname(__DIR__);
+    $candidatePath = $candidate !== '' ? $rootDir . DIRECTORY_SEPARATOR . ltrim(str_replace('/', DIRECTORY_SEPARATOR, $candidate), DIRECTORY_SEPARATOR) : '';
+    if ($candidatePath === '' || !is_file($candidatePath)) {
+        $fallback = '/assets/icons/favicon.svg';
+        $fallbackPath = $rootDir . DIRECTORY_SEPARATOR . ltrim(str_replace('/', DIRECTORY_SEPARATOR, $fallback), DIRECTORY_SEPARATOR);
+        $candidate = is_file($fallbackPath) ? $fallback : '/assets/icons/favicon.svg';
+    }
+
+    return htmlspecialchars($candidate, ENT_QUOTES, 'UTF-8');
 }
 
 function get_product_rating($productId): array
 {
     global $pdo;
+    static $cache = [];
+    $cacheKey = (int)$productId;
+    if (isset($cache[$cacheKey])) {
+        return $cache[$cacheKey];
+    }
 
     try {
         $hasPublishedColumn = false;
@@ -327,25 +341,167 @@ function get_product_rating($productId): array
         $stmt->execute([(int)$productId]);
         $result = $stmt->fetch();
 
-        return [
+        $rating = [
             'rating' => (float)($result['rating'] ?? 0),
             'count' => (int)($result['count'] ?? 0),
         ];
+        $cache[$cacheKey] = $rating;
+        return $rating;
     } catch (PDOException $e) {
         error_log('Database error (get_product_rating): ' . $e->getMessage());
-        return ['rating' => 0.0, 'count' => 0];
+        $cache[$cacheKey] = ['rating' => 0.0, 'count' => 0];
+        return $cache[$cacheKey];
     }
 }
 
 function get_categories(): array
 {
     global $pdo;
+    static $cache = null;
+    if (is_array($cache)) {
+        return $cache;
+    }
 
     try {
-        $stmt = $pdo->query('SELECT id, name, slug FROM categories ORDER BY id ASC');
-        return $stmt->fetchAll() ?: [];
+        // slug мог отсутствовать в старой схеме — обеспечиваем совместимость
+        try {
+            $stmtHasSlug = $pdo->query("SHOW COLUMNS FROM categories LIKE 'slug'");
+            $hasSlug = (bool)($stmtHasSlug && $stmtHasSlug->fetch());
+        } catch (Throwable $e) {
+            $hasSlug = false;
+        }
+
+        if (!$hasSlug) {
+            try {
+                $pdo->exec("ALTER TABLE categories ADD COLUMN slug VARCHAR(190) NOT NULL DEFAULT '' AFTER name");
+            } catch (Throwable $e) {
+                // ignore if we cannot alter
+            }
+            try {
+                $stmtHasSlug = $pdo->query("SHOW COLUMNS FROM categories LIKE 'slug'");
+                $hasSlug = (bool)($stmtHasSlug && $stmtHasSlug->fetch());
+            } catch (Throwable $e) {
+                $hasSlug = false;
+            }
+        }
+
+        $stmt = $pdo->query($hasSlug ? 'SELECT id, name, slug FROM categories ORDER BY id ASC' : 'SELECT id, name, "" AS slug FROM categories ORDER BY id ASC');
+        $cache = $stmt->fetchAll() ?: [];
+        return $cache;
     } catch (PDOException $e) {
         error_log('Database error (get_categories): ' . $e->getMessage());
+        $cache = [];
+        return [];
+    }
+}
+
+function product_category_links_ensure_schema(PDO $pdo): void
+{
+    static $done = false;
+    if ($done) {
+        return;
+    }
+    $done = true;
+
+    try {
+        $pdo->exec(
+            "CREATE TABLE IF NOT EXISTS product_categories (
+                product_id INT NOT NULL,
+                category_id INT NOT NULL,
+                PRIMARY KEY (product_id, category_id),
+                KEY idx_category_product (category_id, product_id),
+                CONSTRAINT fk_product_categories_product FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE CASCADE,
+                CONSTRAINT fk_product_categories_category FOREIGN KEY (category_id) REFERENCES categories(id) ON DELETE CASCADE
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci"
+        );
+    } catch (Throwable $e) {
+        error_log('Product categories schema error: ' . $e->getMessage());
+    }
+}
+
+function product_normalize_category_ids(array $categoryIds): array
+{
+    $normalized = [];
+    foreach ($categoryIds as $rawId) {
+        $id = (int)$rawId;
+        if ($id > 0) {
+            $normalized[$id] = $id;
+        }
+    }
+
+    return array_values($normalized);
+}
+
+function product_sync_categories(PDO $pdo, int $productId, array $categoryIds): void
+{
+    product_category_links_ensure_schema($pdo);
+    $categoryIds = product_normalize_category_ids($categoryIds);
+
+    $stmtDelete = $pdo->prepare('DELETE FROM product_categories WHERE product_id = ?');
+    $stmtDelete->execute([$productId]);
+
+    if ($categoryIds === []) {
+        return;
+    }
+
+    $stmtInsert = $pdo->prepare('INSERT IGNORE INTO product_categories (product_id, category_id) VALUES (?, ?)');
+    foreach ($categoryIds as $categoryId) {
+        $stmtInsert->execute([$productId, $categoryId]);
+    }
+}
+
+function product_fetch_category_ids(PDO $pdo, int $productId): array
+{
+    product_category_links_ensure_schema($pdo);
+
+    try {
+        $stmt = $pdo->prepare('SELECT category_id FROM product_categories WHERE product_id = ? ORDER BY category_id ASC');
+        $stmt->execute([$productId]);
+        $rows = $stmt->fetchAll(PDO::FETCH_COLUMN) ?: [];
+        return product_normalize_category_ids($rows);
+    } catch (Throwable $e) {
+        error_log('Product fetch categories error: ' . $e->getMessage());
+        return [];
+    }
+}
+
+function product_fetch_category_names(PDO $pdo, int $productId): array
+{
+    product_category_links_ensure_schema($pdo);
+
+    if ($productId <= 0) {
+        return [];
+    }
+
+    try {
+        $stmt = $pdo->prepare("
+            SELECT DISTINCT c.id, c.name
+            FROM (
+                SELECT p.category_id AS category_id, 0 AS sort_order
+                FROM products p
+                WHERE p.id = ?
+                UNION ALL
+                SELECT pc.category_id AS category_id, 1 AS sort_order
+                FROM product_categories pc
+                WHERE pc.product_id = ?
+            ) t
+            INNER JOIN categories c ON c.id = t.category_id
+            WHERE t.category_id IS NOT NULL AND t.category_id > 0
+            ORDER BY t.sort_order ASC, c.name ASC
+        ");
+        $stmt->execute([$productId, $productId]);
+        $rows = $stmt->fetchAll() ?: [];
+
+        $names = [];
+        foreach ($rows as $row) {
+            $name = trim((string)($row['name'] ?? ''));
+            if ($name !== '') {
+                $names[] = $name;
+            }
+        }
+        return $names;
+    } catch (Throwable $e) {
+        error_log('Fetch product category names error: ' . $e->getMessage());
         return [];
     }
 }
@@ -387,17 +543,26 @@ function get_featured_products($limit = 20): array
 function get_products_by_category($categoryId, $limit = 20): array
 {
     global $pdo;
+    product_category_links_ensure_schema($pdo);
 
     try {
         $stmt = $pdo->prepare("
             SELECT id, category_id, name, description, final_price AS price, base_price AS price_old,
                    discount_percent, promotion_id, stock_quantity, rating, is_active, created_at
             FROM v_product_pricing
-            WHERE is_active = 1 AND category_id = ?
+            WHERE is_active = 1
+              AND (
+                    category_id = ?
+                    OR EXISTS (
+                        SELECT 1
+                        FROM product_categories pc
+                        WHERE pc.product_id = v_product_pricing.id AND pc.category_id = ?
+                    )
+              )
             ORDER BY created_at DESC
             LIMIT ?
         ");
-        $stmt->execute([(int)$categoryId, max(1, min((int)$limit, 1000))]);
+        $stmt->execute([(int)$categoryId, (int)$categoryId, max(1, min((int)$limit, 1000))]);
         return $stmt->fetchAll() ?: [];
     } catch (PDOException $e) {
         error_log('Database error (get_products_by_category): ' . $e->getMessage());
@@ -500,46 +665,78 @@ function get_product_colors($productId): array
 function get_related_products($productId, $limit = 3): array
 {
     global $pdo;
+    $limit = max(1, min((int)$limit, 50));
 
     try {
-        $stmt = $pdo->prepare("
-            SELECT id, category_id, name, description, final_price AS price, base_price AS price_old,
-                   discount_percent, promotion_id, stock_quantity, rating, is_active, created_at
-            FROM v_product_pricing
-            WHERE category_id = (SELECT category_id FROM products WHERE id = ?)
-              AND id <> ?
-              AND is_active = 1
-            ORDER BY RAND()
-            LIMIT ?
-        ");
-        $stmt->execute([(int)$productId, (int)$productId, (int)$limit]);
-        $products = $stmt->fetchAll() ?: [];
+        $stmtCategory = $pdo->prepare('SELECT category_id FROM products WHERE id = ? LIMIT 1');
+        $stmtCategory->execute([(int)$productId]);
+        $categoryId = (int)($stmtCategory->fetchColumn() ?: 0);
 
-        if (count($products) < (int)$limit) {
-            $stmtExtra = $pdo->prepare("
+        $seen = [(int)$productId => true];
+        $products = [];
+        $pivot = max(1, (int)$productId);
+
+        if ($categoryId > 0) {
+            $stmtPrimary = $pdo->prepare("
                 SELECT id, category_id, name, description, final_price AS price, base_price AS price_old,
                        discount_percent, promotion_id, stock_quantity, rating, is_active, created_at
                 FROM v_product_pricing
-                WHERE id <> ? AND is_active = 1
-                ORDER BY RAND()
+                WHERE is_active = 1 AND category_id = ? AND id <> ? AND id >= ?
+                ORDER BY id ASC
                 LIMIT ?
             ");
-            $stmtExtra->execute([(int)$productId, (int)($limit * 2)]);
-            $extra_products = $stmtExtra->fetchAll() ?: [];
-            
-            // De-duplicate: collect IDs from first query to exclude from extra
-            $existing_ids = array_map(fn($p) => $p['id'], $products);
-            $unique_extra = array_filter($extra_products, fn($p) => !in_array($p['id'], $existing_ids));
-            
-            // Merge unique products only, up to the limit
-            $products = array_values(array_slice(
-                array_merge($products, $unique_extra),
-                0,
-                (int)$limit
-            ));
+            $stmtPrimary->execute([$categoryId, (int)$productId, $pivot, $limit]);
+            foreach ($stmtPrimary->fetchAll() ?: [] as $row) {
+                $id = (int)($row['id'] ?? 0);
+                if ($id > 0 && !isset($seen[$id])) {
+                    $seen[$id] = true;
+                    $products[] = $row;
+                }
+            }
+
+            if (count($products) < $limit) {
+                $stmtSecondary = $pdo->prepare("
+                    SELECT id, category_id, name, description, final_price AS price, base_price AS price_old,
+                           discount_percent, promotion_id, stock_quantity, rating, is_active, created_at
+                    FROM v_product_pricing
+                    WHERE is_active = 1 AND category_id = ? AND id <> ? AND id < ?
+                    ORDER BY id DESC
+                    LIMIT ?
+                ");
+                $stmtSecondary->execute([$categoryId, (int)$productId, $pivot, $limit - count($products)]);
+                foreach ($stmtSecondary->fetchAll() ?: [] as $row) {
+                    $id = (int)($row['id'] ?? 0);
+                    if ($id > 0 && !isset($seen[$id])) {
+                        $seen[$id] = true;
+                        $products[] = $row;
+                    }
+                }
+            }
         }
 
-        return $products;
+        if (count($products) < $limit) {
+            $stmtFallback = $pdo->prepare("
+                SELECT id, category_id, name, description, final_price AS price, base_price AS price_old,
+                       discount_percent, promotion_id, stock_quantity, rating, is_active, created_at
+                FROM v_product_pricing
+                WHERE is_active = 1 AND id <> ?
+                ORDER BY id DESC
+                LIMIT ?
+            ");
+            $stmtFallback->execute([(int)$productId, $limit * 3]);
+            foreach ($stmtFallback->fetchAll() ?: [] as $row) {
+                $id = (int)($row['id'] ?? 0);
+                if ($id > 0 && !isset($seen[$id])) {
+                    $seen[$id] = true;
+                    $products[] = $row;
+                    if (count($products) >= $limit) {
+                        break;
+                    }
+                }
+            }
+        }
+
+        return array_slice($products, 0, $limit);
     } catch (PDOException $e) {
         error_log('Database error (get_related_products): ' . $e->getMessage());
         return [];
@@ -549,24 +746,29 @@ function get_related_products($productId, $limit = 3): array
 function product_needs_color_panel($productId): bool
 {
     global $pdo;
+    static $checkedSchema = false;
 
     try {
-        $stmt = $pdo->prepare('SELECT name FROM products WHERE id = ? LIMIT 1');
+        if (!$checkedSchema) {
+            $checkedSchema = true;
+            $hasColumn = false;
+            foreach ($pdo->query("SHOW COLUMNS FROM products LIKE 'has_color_variants'") ?: [] as $row) {
+                $hasColumn = true;
+                break;
+            }
+            if (!$hasColumn) {
+                $pdo->exec("ALTER TABLE products ADD COLUMN has_color_variants TINYINT(1) NOT NULL DEFAULT 0 AFTER pickup_available");
+            }
+        }
+
+        $stmt = $pdo->prepare('SELECT has_color_variants FROM products WHERE id = ? LIMIT 1');
         $stmt->execute([(int)$productId]);
         $product = $stmt->fetch();
         if (!$product) {
             return false;
         }
 
-        $name = mb_strtolower((string)$product['name'], 'UTF-8');
-        if (strpos($name, 'цветные карандаши') !== false || (strpos($name, 'карандаш') !== false && strpos($name, 'цветн') !== false)) {
-            return false;
-        }
-        if (strpos($name, 'тетрад') !== false || strpos($name, 'блокнот') !== false || strpos($name, 'альбом') !== false) {
-            return false;
-        }
-
-        return get_product_colors((int)$productId) !== [];
+        return ((int)($product['has_color_variants'] ?? 0) === 1) && get_product_colors((int)$productId) !== [];
     } catch (PDOException $e) {
         error_log('Database error (product_needs_color_panel): ' . $e->getMessage());
         return false;
@@ -596,6 +798,15 @@ function app_promotion_catalog_query_params(int $promotionId): array
             }));
             if ($ids !== []) {
                 $params['category'] = $ids;
+            }
+        } elseif ($scope === 'products') {
+            $stmt = $pdo->prepare('SELECT product_id FROM promotion_products WHERE promotion_id = ? ORDER BY product_id ASC');
+            $stmt->execute([$promotionId]);
+            $ids = array_values(array_filter(array_map('intval', $stmt->fetchAll(PDO::FETCH_COLUMN) ?: []), static function (int $id): bool {
+                return $id > 0;
+            }));
+            if ($ids !== []) {
+                $params['product_ids'] = $ids;
             }
         }
     } catch (Throwable $e) {

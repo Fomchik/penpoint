@@ -228,7 +228,44 @@ function product_find_stock_for_selection(int $productId, array $attributes): ?i
         return null;
     }
 
-    return min($matchedStocks);
+    $stockMode = 'strict_min';
+    global $pdo;
+    static $schemaChecked = false;
+    static $modeCache = [];
+    if (isset($modeCache[$productId])) {
+        $stockMode = $modeCache[$productId];
+    } elseif (isset($pdo) && $pdo instanceof PDO) {
+        try {
+            if (!$schemaChecked) {
+                $schemaChecked = true;
+                $hasColumn = false;
+                foreach ($pdo->query("SHOW COLUMNS FROM products LIKE 'parameter_stock_mode'") ?: [] as $column) {
+                    $hasColumn = true;
+                    break;
+                }
+                if (!$hasColumn) {
+                    $pdo->exec("ALTER TABLE products ADD COLUMN parameter_stock_mode VARCHAR(24) NOT NULL DEFAULT 'strict_min' AFTER has_color_variants");
+                }
+            }
+
+            $stmt = $pdo->prepare('SELECT parameter_stock_mode FROM products WHERE id = ? LIMIT 1');
+            $stmt->execute([$productId]);
+            $mode = trim((string)($stmt->fetchColumn() ?: 'strict_min'));
+            if (!in_array($mode, ['strict_min', 'independent_sum'], true)) {
+                $mode = 'strict_min';
+            }
+            $stockMode = $mode;
+            $modeCache[$productId] = $stockMode;
+        } catch (Throwable $e) {
+            $stockMode = 'strict_min';
+        }
+    }
+
+    if ($stockMode === 'independent_sum') {
+        return max(0, (int)array_sum($matchedStocks));
+    }
+
+    return max(0, (int)min($matchedStocks));
 }
 
 function product_collect_images_from_parameter_rows(int $productId, array $attributes): array
@@ -361,10 +398,6 @@ function build_dynamic_product_state(array $product, array $selections, array $i
         $basePrice = $variant['price'] !== null ? (float)$variant['price'] : (float)($product['price_old'] ?? $product['price'] ?? 0);
         $finalPrice = calculate_discounted_price($basePrice, (int)$discount['discount_percent']);
         $stock = (int)$variant['stock_quantity'];
-        $parameterStock = product_find_stock_for_selection($productId, (array)$variant['attributes']);
-        if ($parameterStock !== null) {
-            $stock = $parameterStock;
-        }
         $variantImages = product_find_images_for_selection($productId, $variant['attributes'], (int)$variant['id'], $images);
         $currentImage = $variantImages[0] ?? APP_DEFAULT_PRODUCT_IMAGE;
 

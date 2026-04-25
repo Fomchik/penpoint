@@ -134,7 +134,9 @@ export function initDelivery({ onTotalsChange }) {
     const isDelivery = selected && selected.value === 'delivery';
     if (pickupBlock) pickupBlock.style.display = isDelivery ? 'none' : '';
     if (deliveryBlock) deliveryBlock.style.display = isDelivery ? '' : 'none';
-    onTotalsChange(parseFloat((selected && selected.getAttribute('data-delivery-price')) || '0') || 0);
+    if (typeof onTotalsChange === 'function') {
+      onTotalsChange(parseFloat((selected && selected.getAttribute('data-delivery-price')) || '0') || 0);
+    }
   }
 
   if (pickupSearch) {

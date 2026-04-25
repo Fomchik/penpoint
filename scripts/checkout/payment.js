@@ -5,7 +5,7 @@ export function initPaymentPanel() {
   const panel = document.getElementById('online-payment-panel');
   const methodRadios = document.querySelectorAll('input[name="payment_method"]');
   const providerRadios = document.querySelectorAll('input[name="payment_provider"]');
-  const logo = document.querySelector('.checkout-payment-option__logo');
+  const logo = document.querySelector('.checkout-payment-option__logo-image');
 
   if (logo) {
     logo.src = PAYMENT_LOGO_SRC;
@@ -39,6 +39,18 @@ export function initCheckoutSubmit() {
   const form = document.getElementById('order-form');
   const payload = document.getElementById('cart-payload');
   if (!form || !payload) return;
+  const csrfInput = form.querySelector('input[name="csrf_token"]');
+
+  function syncCsrfTokenFromResponse(response) {
+    if (!response || !response.headers) return;
+    const token = response.headers.get('X-CSRF-Token');
+    if (typeof token === 'string' && token.trim() !== '') {
+      if (csrfInput) {
+        csrfInput.value = token.trim();
+      }
+      window.APP_CSRF_TOKEN = token.trim();
+    }
+  }
 
   const submitBtn = form.querySelector('button[type="submit"]');
   let isSubmitting = false;
@@ -69,6 +81,7 @@ export function initCheckoutSubmit() {
         },
         body: formData,
       });
+      syncCsrfTokenFromResponse(response);
 
       let data = null;
       try {

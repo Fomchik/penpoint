@@ -83,6 +83,28 @@
     padding-right: 4px;
 }
 
+.filters__actions {
+    margin-top: 14px;
+    padding-top: 12px;
+    border-top: 1px solid #f0ebe7;
+}
+
+.filters__reset {
+    width: 100%;
+    height: 36px;
+    border: 1px solid #d8cfc8;
+    background: #fff;
+    border-radius: 8px;
+    color: #543a2c;
+    font-weight: 600;
+    cursor: pointer;
+}
+
+.filters__reset:hover {
+    border-color: #bb5425;
+    color: #bb5425;
+}
+
 .catalog__toolbar {
     display: flex;
     justify-content: flex-start;

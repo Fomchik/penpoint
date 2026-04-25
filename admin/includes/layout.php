@@ -65,7 +65,7 @@ function admin_render_header(string $title, string $active = ''): void
                 <div class="admin-sidebar-footer">
                     <a class="admin-back-link" href="/index.php">Вернуться на сайт</a>
 
-                    <form method="post" action="/admin/api/logout.php" class="admin-logout-form"
+                    <form method="post" action="logout.php" class="admin-logout-form"
                         onsubmit="return confirm('Выйти из системы?');">
                         <?php echo admin_csrf_input(); ?>
                         <button class="admin-logout-btn" type="submit">Выйти</button>

@@ -22,6 +22,15 @@ function product_parse_uploaded_variant_images(array $files): array
             if (!is_array($valueData) || !isset($valueData['image'])) {
                 continue;
             }
+            if (
+                !isset($files['name'][$pIdx]['values'][$vIdx]['image']) ||
+                !isset($files['type'][$pIdx]['values'][$vIdx]['image']) ||
+                !isset($files['tmp_name'][$pIdx]['values'][$vIdx]['image']) ||
+                !isset($files['error'][$pIdx]['values'][$vIdx]['image']) ||
+                !isset($files['size'][$pIdx]['values'][$vIdx]['image'])
+            ) {
+                continue;
+            }
 
             $slot = (string)$pIdx . '_' . (string)$vIdx;
             $result[$slot] = [
@@ -183,12 +192,8 @@ function product_delete_public_file(string $publicPath): void
         return;
     }
 
-    $documentRoot = rtrim((string)($_SERVER['DOCUMENT_ROOT'] ?? ''), '/\\');
-    if ($documentRoot === '') {
-        return;
-    }
-
-    $absolutePath = $documentRoot . str_replace('/', DIRECTORY_SEPARATOR, $publicPath);
+    $projectRoot = dirname(__DIR__);
+    $absolutePath = $projectRoot . str_replace('/', DIRECTORY_SEPARATOR, $publicPath);
     if (is_file($absolutePath)) {
         @unlink($absolutePath);
     }
@@ -199,6 +204,43 @@ function product_save_parameters(PDO $pdo, int $productId, array $rows, array $f
     product_options_ensure_schema($pdo);
     $normalized = product_normalize_admin_parameter_rows($rows);
     $uploadedFiles = product_parse_uploaded_variant_images($files);
+    $oldImagePaths = [];
+    $newImagePaths = [];
+
+    try {
+        $stmtOldImages = $pdo->prepare(
+            'SELECT pv.image_path
+             FROM product_parameter_values pv
+             INNER JOIN product_parameters p ON p.id = pv.parameter_id
+             WHERE p.product_id = ? AND pv.image_path <> ""'
+        );
+        $stmtOldImages->execute([$productId]);
+        foreach ($stmtOldImages->fetchAll(PDO::FETCH_COLUMN) ?: [] as $path) {
+            $path = trim((string)$path);
+            if ($path !== '') {
+                $oldImagePaths[$path] = true;
+            }
+        }
+    } catch (Throwable $e) {
+        error_log('Collect old parameter images error: ' . $e->getMessage());
+    }
+
+    $categorySlug = 'misc';
+    try {
+        $stmtCategory = $pdo->prepare(
+            'SELECT c.slug
+             FROM products p
+             LEFT JOIN categories c ON c.id = p.category_id
+             WHERE p.id = ? LIMIT 1'
+        );
+        $stmtCategory->execute([$productId]);
+        $slug = trim((string)($stmtCategory->fetchColumn() ?: ''));
+        if ($slug !== '') {
+            $categorySlug = $slug;
+        }
+    } catch (Throwable $e) {
+        error_log('Load product category slug error: ' . $e->getMessage());
+    }
 
     // Удаляем старые параметры и значения
     $stmtDeleteValues = $pdo->prepare('DELETE FROM product_parameter_values WHERE parameter_id IN (SELECT id FROM product_parameters WHERE product_id = ?)');
@@ -230,9 +272,29 @@ function product_save_parameters(PDO $pdo, int $productId, array $rows, array $f
             $uploaded = $uploadedFiles[$slot]['image'] ?? null;
             if (is_array($uploaded) && isset($uploaded['error']) && (int)$uploaded['error'] === UPLOAD_ERR_OK) {
                 try {
+                    $rawValueName = trim((string)($value['name'] ?? ''));
+                    if ($rawValueName !== '' && function_exists('transliterator_transliterate')) {
+                        $rawValueName = (string)transliterator_transliterate('Any-Latin; Latin-ASCII', $rawValueName);
+                    }
+                    $valueSlug = preg_replace('/[^a-z0-9]+/i', '_', $rawValueName) ?: '';
+                    $valueSlug = trim(strtolower($valueSlug), '_');
+                    if ($valueSlug === '') {
+                        $valueSlug = 'value_' . (string)$valueIndex;
+                    }
+
+                    $rawCode = trim((string)($param['code'] ?? ''));
+                    $codeSlug = preg_replace('/[^a-z0-9]+/i', '_', $rawCode) ?: '';
+                    $codeSlug = trim(strtolower($codeSlug), '_');
+                    if ($codeSlug === '') {
+                        $codeSlug = 'param_' . (string)$paramIndex;
+                    }
+
+                    // Важно: имя файла должно быть уникальным для каждого значения, иначе изображения перезаписывают друг друга.
+                    $fileBaseName = $codeSlug . '_' . $valueSlug . '_' . (string)$valueIndex;
                     $uploadedPath = admin_handle_image_upload($uploaded, [
                         'target' => 'product_images',
-                        'prefix' => 'parameter_value',
+                        'sub_path' => $categorySlug . '/' . $productId . '/parameters',
+                        'file_name' => $fileBaseName,
                     ]);
                     if ($uploadedPath !== null) {
                         if ($imagePath !== '' && $imagePath !== $uploadedPath) {
@@ -253,6 +315,15 @@ function product_save_parameters(PDO $pdo, int $productId, array $rows, array $f
                 $imagePath,
                 $valueIndex,
             ]);
+            if ($imagePath !== '') {
+                $newImagePaths[$imagePath] = true;
+            }
+        }
+    }
+
+    foreach (array_keys($oldImagePaths) as $oldPath) {
+        if (!isset($newImagePaths[$oldPath])) {
+            product_delete_public_file($oldPath);
         }
     }
 }

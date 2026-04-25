@@ -24,7 +24,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     admin_redirect('/admin/order_view.php?id=' . $orderId);
 }
 
-$stmt = $pdo->prepare('SELECT o.*, os.name AS status_name, u.name AS user_name, u.email AS user_email FROM orders o LEFT JOIN order_statuses os ON os.id = o.status_id LEFT JOIN users u ON u.id = o.user_id WHERE o.id = ? LIMIT 1');
+$stmt = $pdo->prepare('SELECT o.id, o.user_id, o.customer_name, o.customer_phone, o.customer_email, o.status_id, o.delivery_method_id, o.payment_method, o.total_price, o.delivery_price, o.discount_total, o.address, o.payment_status, o.payment_id, o.paid_at, o.created_at, o.updated_at, os.name AS status_name, u.name AS user_name, u.email AS user_email FROM orders o LEFT JOIN order_statuses os ON os.id = o.status_id LEFT JOIN users u ON u.id = o.user_id WHERE o.id = ? LIMIT 1');
 $stmt->execute([$orderId]);
 $order = $stmt->fetch();
 if (!$order) admin_redirect('/admin/orders.php');

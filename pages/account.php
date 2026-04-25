@@ -4,9 +4,11 @@ app_start_session();
 require_once __DIR__ . '/../includes/config.php';
 require_once __DIR__ . '/../includes/orders.php';
 require_once __DIR__ . '/../includes/reviews.php';
+require_once __DIR__ . '/../includes/auth_security.php';
 
 app_ensure_order_schema($pdo);
 reviews_ensure_schema($pdo);
+auth_ensure_security_schema($pdo);
 
 if (!isset($_SESSION['user_id'])) {
     header('Location: /pages/login.php');
@@ -27,6 +29,29 @@ $review_error = '';
 $review_success = '';
 $review_form_order_id = max(0, (int)($_GET['review_order'] ?? 0));
 $review_form_product_id = max(0, (int)($_GET['review_product'] ?? 0));
+$confirm_email_token = trim((string)($_GET['confirm_email'] ?? ''));
+
+if (!function_exists('account_set_flash')) {
+    function account_set_flash(string $type, string $message): void
+    {
+        $_SESSION['account_flash'] = ['type' => $type, 'message' => $message];
+    }
+}
+
+if (!function_exists('account_pull_flash')) {
+    function account_pull_flash(): ?array
+    {
+        if (!isset($_SESSION['account_flash']) || !is_array($_SESSION['account_flash'])) {
+            return null;
+        }
+
+        $flash = $_SESSION['account_flash'];
+        unset($_SESSION['account_flash']);
+        return $flash;
+    }
+}
+
+$profile_flash = account_pull_flash();
 
 try {
     $stmt = $pdo->prepare(
@@ -46,23 +71,104 @@ try {
     $user = ['name' => '', 'email' => '', 'phone' => '', 'created_at' => date('Y-m-d H:i:s')];
 }
 
+if ($confirm_email_token !== '') {
+    try {
+        $tokenData = auth_consume_email_change_token($pdo, $confirm_email_token);
+        if (!$tokenData) {
+            account_set_flash('error', 'Ссылка подтверждения email недействительна или истекла.');
+            header('Location: /pages/account.php?tab=profile');
+            exit;
+        }
+
+        if ((int)$tokenData['user_id'] !== $user_id) {
+            account_set_flash('error', 'Эта ссылка подтверждения относится к другому аккаунту.');
+            header('Location: /pages/account.php?tab=profile');
+            exit;
+        }
+
+        $newEmail = trim((string)$tokenData['new_email']);
+        if ($newEmail === '' || !filter_var($newEmail, FILTER_VALIDATE_EMAIL)) {
+            account_set_flash('error', 'Новый email некорректен.');
+            header('Location: /pages/account.php?tab=profile');
+            exit;
+        }
+
+        $stmtExists = $pdo->prepare('SELECT id FROM users WHERE email = ? AND id <> ? LIMIT 1');
+        $stmtExists->execute([$newEmail, $user_id]);
+        if ($stmtExists->fetch()) {
+            account_set_flash('error', 'Этот email уже используется другим пользователем.');
+            header('Location: /pages/account.php?tab=profile');
+            exit;
+        }
+
+        $stmtUpdate = $pdo->prepare('UPDATE users SET email = ?, is_verified = 1, email_verified_at = NOW() WHERE id = ? LIMIT 1');
+        $stmtUpdate->execute([$newEmail, $user_id]);
+        $_SESSION['user_email'] = $newEmail;
+        account_set_flash('success', 'Email успешно подтверждён и обновлён.');
+        header('Location: /pages/account.php?tab=profile');
+        exit;
+    } catch (Throwable $e) {
+        error_log('Account confirm email error: ' . $e->getMessage());
+        account_set_flash('error', 'Не удалось подтвердить новый email.');
+        header('Location: /pages/account.php?tab=profile');
+        exit;
+    }
+}
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['update_profile'])) {
     app_validate_csrf_or_fail();
     $name = trim((string)($_POST['name'] ?? ''));
     $email = trim((string)($_POST['email'] ?? ''));
     $phone = trim((string)($_POST['phone'] ?? ''));
 
+    $phone_digits = preg_replace('/\D+/u', '', $phone);
+    $is_phone_valid = $phone === '' || ($phone_digits !== null && strlen($phone_digits) >= 10 && strlen($phone_digits) <= 15);
+
     if ($name === '' || $email === '' || !filter_var($email, FILTER_VALIDATE_EMAIL)) {
         $error = 'Проверьте имя и email.';
+    } elseif (!$is_phone_valid) {
+        $error = 'Проверьте формат телефона.';
     } else {
         try {
-            $stmt = $pdo->prepare('UPDATE users SET name = ?, email = ?, phone = ? WHERE id = ? LIMIT 1');
-            $stmt->execute([$name, $email, $phone !== '' ? $phone : null, $user_id]);
-            $_SESSION['user_name'] = $name;
-            $_SESSION['user_email'] = $email;
-            $_SESSION['user_phone'] = $phone;
-            header('Location: /pages/account.php?tab=profile&success=1');
-            exit;
+            $currentEmail = (string)($user['email'] ?? '');
+            $newEmail = mb_strtolower($email, 'UTF-8');
+            $isEmailChanged = mb_strtolower($currentEmail, 'UTF-8') !== $newEmail;
+
+            if ($isEmailChanged) {
+                $stmtEmailExists = $pdo->prepare('SELECT id FROM users WHERE email = ? AND id <> ? LIMIT 1');
+                $stmtEmailExists->execute([$email, $user_id]);
+                if ($stmtEmailExists->fetch()) {
+                    $error = 'Этот email уже используется.';
+                } else {
+                    $stmt = $pdo->prepare('UPDATE users SET name = ?, phone = ? WHERE id = ? LIMIT 1');
+                    $stmt->execute([$name, $phone !== '' ? $phone : null, $user_id]);
+
+                    $token = auth_create_email_change_token($pdo, $user_id, $email, 86400);
+                    $link = auth_base_url() . '/pages/account.php?tab=profile&confirm_email=' . urlencode($token);
+                    $mailSent = auth_send_link_email($email, 'Подтверждение нового email', 'Подтвердите новый email', $link, 24);
+
+                    $_SESSION['user_name'] = $name;
+                    $_SESSION['user_phone'] = $phone;
+
+                    if ($mailSent) {
+                        account_set_flash('success', 'Профиль обновлён. На новый email отправлена ссылка подтверждения.');
+                    } else {
+                        account_set_flash('error', 'Профиль обновлён, но письмо подтверждения не отправилось. Попробуйте снова.');
+                    }
+                    header('Location: /pages/account.php?tab=profile');
+                    exit;
+                }
+            } else {
+                $stmt = $pdo->prepare('UPDATE users SET name = ?, email = ?, phone = ? WHERE id = ? LIMIT 1');
+                $stmt->execute([$name, $email, $phone !== '' ? $phone : null, $user_id]);
+                $_SESSION['user_email'] = $email;
+                account_set_flash('success', 'Данные обновлены.');
+                $_SESSION['user_name'] = $name;
+                $_SESSION['user_phone'] = $phone;
+                header('Location: /pages/account.php?tab=profile');
+                exit;
+            }
+
         } catch (PDOException $e) {
             error_log('Account update error: ' . $e->getMessage());
             $error = 'Не удалось обновить профиль.';
@@ -106,9 +212,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['submit_review'])) {
     } else {
         try {
             reviews_create($pdo, $review_form_product_id, $user_id, $rating, $comment);
-            $review_success = 'Отзыв сохранён.';
-            $review_form_order_id = 0;
-            $review_form_product_id = 0;
+            account_set_flash('success', 'Отзыв сохранён.');
+            header('Location: /pages/account.php?tab=orders');
+            exit;
         } catch (Throwable $e) {
             error_log('Account review create error: ' . $e->getMessage());
             $review_error = 'Не удалось сохранить отзыв.';
@@ -227,8 +333,11 @@ foreach ($orders as $order) {
             <div class="account-content">
                 <div class="account-section <?php echo $current_tab === 'profile' ? 'account-section--active' : ''; ?>">
                     <h2 class="account-content__title">Профиль</h2>
-                    <?php if (isset($_GET['success'])): ?>
-                        <div class="message message--success">Данные обновлены.</div>
+                    <?php if (is_array($profile_flash) && ($profile_flash['type'] ?? '') === 'success'): ?>
+                        <div class="message message--success"><?php echo htmlspecialchars((string)($profile_flash['message'] ?? ''), ENT_QUOTES, 'UTF-8'); ?></div>
+                    <?php endif; ?>
+                    <?php if (is_array($profile_flash) && ($profile_flash['type'] ?? '') === 'error'): ?>
+                        <div class="message message--error"><?php echo htmlspecialchars((string)($profile_flash['message'] ?? ''), ENT_QUOTES, 'UTF-8'); ?></div>
                     <?php endif; ?>
                     <?php if ($error !== ''): ?>
                         <div class="message message--error"><?php echo htmlspecialchars($error); ?></div>
@@ -245,7 +354,7 @@ foreach ($orders as $order) {
                         </div>
                         <div class="profile-form__field">
                             <label class="profile-form__label">Телефон</label>
-                            <input type="tel" name="phone" class="profile-form__input" value="<?php echo htmlspecialchars((string)($user['phone'] ?? '')); ?>">
+                            <input type="tel" name="phone" class="profile-form__input" value="<?php echo htmlspecialchars((string)($user['phone'] ?? '')); ?>" pattern="^\+?[0-9\-\(\)\s]{10,20}$" title="Введите телефон в формате +7 (999) 123-45-67">
                         </div>
                         <div class="profile-form__field">
                             <label class="profile-form__label">Дата регистрации</label>
@@ -261,6 +370,9 @@ foreach ($orders as $order) {
 
                 <div class="account-section <?php echo $current_tab === 'orders' ? 'account-section--active' : ''; ?>">
                     <h2 class="account-content__title">История заказов</h2>
+                    <?php if (is_array($profile_flash) && ($profile_flash['type'] ?? '') === 'success'): ?>
+                        <div class="message message--success"><?php echo htmlspecialchars((string)($profile_flash['message'] ?? ''), ENT_QUOTES, 'UTF-8'); ?></div>
+                    <?php endif; ?>
                     <?php if ($orders === []): ?>
                         <div class="empty-state"><p>У вас пока нет заказов.</p></div>
                     <?php else: ?>
@@ -376,6 +488,7 @@ foreach ($orders as $order) {
 
                 <div class="account-section <?php echo $current_tab === 'favorites' ? 'account-section--active' : ''; ?>">
                     <h2 class="account-content__title">Избранное</h2>
+                    <button type="button" class="account-content__action" id="favorites-clear">Очистить избранное</button>
                     <div class="favorites-grid" id="favorites-grid">
                         <div class="empty-state"><p>Список избранного пуст.</p></div>
                     </div>

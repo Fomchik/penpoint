@@ -66,6 +66,10 @@ if ($rawBody === false || $rawBody === '') {
     webhook_response(['ok' => false, 'error' => 'Empty body'], 400);
 }
 
+if (!yookassa_verify_webhook_signature($rawBody)) {
+    webhook_response(['ok' => false, 'error' => 'Invalid signature'], 401);
+}
+
 $payload = json_decode($rawBody, true);
 if (!is_array($payload)) {
     webhook_response(['ok' => false, 'error' => 'Invalid JSON'], 400);
@@ -105,6 +109,7 @@ try {
         webhook_response(['ok' => false, 'error' => 'Metadata mismatch'], 400);
     }
 
+    global $pdo;
     $pdo->beginTransaction();
 
     $stmtOrder = $pdo->prepare('SELECT id, total_price, payment_status, payment_id FROM orders WHERE id = ? LIMIT 1 FOR UPDATE');

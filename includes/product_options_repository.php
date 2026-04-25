@@ -25,7 +25,7 @@ function product_fetch_parameters(int $productId): array
 
     try {
         $stmt = $pdo->prepare(
-            'SELECT p.id, p.name, p.code, p.sort_order,
+            'SELECT p.id, p.name, p.code, p.use_for_variants, p.sort_order,
                     pv.id as value_id, pv.name as value_name, pv.price, pv.stock_quantity, pv.image_path as value_image_path, pv.sort_order as value_sort_order
              FROM product_parameters p
              LEFT JOIN product_parameter_values pv ON pv.parameter_id = p.id
@@ -43,6 +43,7 @@ function product_fetch_parameters(int $productId): array
                     'id' => $paramId,
                     'name' => $row['name'],
                     'code' => $row['code'],
+                    'use_for_variants' => (int)($row['use_for_variants'] ?? 1),
                     'sort_order' => (int)$row['sort_order'],
                     'values' => [],
                 ];
@@ -96,6 +97,11 @@ function product_fetch_variants(int $productId, bool $activeOnly = false): array
 {
     global $pdo;
     product_options_ensure_schema($pdo);
+    static $cache = [];
+    $cacheKey = $productId . ':' . ($activeOnly ? '1' : '0');
+    if (isset($cache[$cacheKey])) {
+        return $cache[$cacheKey];
+    }
 
     try {
         $sql = 'SELECT id, product_id, label, price, stock_quantity, attributes_json, is_active
@@ -123,9 +129,11 @@ function product_fetch_variants(int $productId, bool $activeOnly = false): array
         }
         unset($row);
 
-        return $rows;
+        $cache[$cacheKey] = $rows;
+        return $cache[$cacheKey];
     } catch (Throwable $e) {
         error_log('Fetch product variants error: ' . $e->getMessage());
+        $cache[$cacheKey] = [];
         return [];
     }
 }
@@ -149,9 +157,15 @@ function product_fetch_variant_by_id(int $productId, int $variantId, bool $activ
 function get_product_options_for_product(int $productId): array
 {
     $parameters = product_fetch_parameters($productId);
+    $hasRealVariants = product_has_real_variants($productId);
     if ($parameters !== []) {
         $schemaMap = [];
         foreach ($parameters as $parameter) {
+            $isUsedForVariants = (int)($parameter['use_for_variants'] ?? 1) === 1;
+            if ($hasRealVariants && !$isUsedForVariants) {
+                continue;
+            }
+
             if (empty($parameter['values'])) {
                 continue;
             }
@@ -182,7 +196,7 @@ function get_product_options_for_product(int $productId): array
                     'label' => (string)$parameter['name'],
                     'ui' => 'buttons',
                     'values' => [],
-                    'use_for_variants' => false,
+                    'use_for_variants' => $isUsedForVariants,
                 ];
             }
 
@@ -199,7 +213,7 @@ function get_product_options_for_product(int $productId): array
                     $schemaMap[$key]['values'][] = $value;
                 }
             }
-            $schemaMap[$key]['use_for_variants'] = $schemaMap[$key]['use_for_variants'] || ((int)$parameter['use_for_variants'] === 1);
+            $schemaMap[$key]['use_for_variants'] = $schemaMap[$key]['use_for_variants'] || $isUsedForVariants;
         }
 
         $schema = array_values($schemaMap);

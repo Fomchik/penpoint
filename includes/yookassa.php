@@ -7,7 +7,7 @@ if (!defined('YOOKASSA_API_URL')) {
 }
 
 //  В продакшене ключи нужно хранить в .env
- 
+
 function yookassa_get_config(): array
 {
     $shopId = trim((string)(getenv('YOOKASSA_SHOP_ID') ?: ''));
@@ -22,6 +22,35 @@ function yookassa_get_config(): array
         'secret_key' => $secretKey,
         'api_url' => YOOKASSA_API_URL,
     ];
+}
+
+function yookassa_ssl_verify_enabled(): bool
+{
+    $raw = strtolower(trim((string)(getenv('YOOKASSA_SSL_VERIFY') ?: '1')));
+    return !in_array($raw, ['0', 'false', 'off', 'no'], true);
+}
+
+function yookassa_verify_webhook_signature(string $rawBody): bool
+{
+    $secret = trim((string)(getenv('YOOKASSA_WEBHOOK_SIGNATURE_SECRET') ?: ''));
+    if ($secret === '') {
+        return true;
+    }
+
+    $header = trim((string)($_SERVER['HTTP_SIGNATURE'] ?? ''));
+    if ($header === '') {
+        return false;
+    }
+
+    $expectedHex = hash_hmac('sha256', $rawBody, $secret);
+    $expectedBase64 = base64_encode(hash_hmac('sha256', $rawBody, $secret, true));
+
+    $provided = $header;
+    if (stripos($provided, 'sha256=') === 0) {
+        $provided = trim(substr($provided, 7));
+    }
+
+    return hash_equals($expectedHex, $provided) || hash_equals($expectedBase64, $provided);
 }
 
 function yookassa_api_request(string $method, string $path, ?array $payload = null, ?string $idempotenceKey = null): array
@@ -51,6 +80,8 @@ function yookassa_api_request(string $method, string $path, ?array $payload = nu
         CURLOPT_HTTPAUTH => CURLAUTH_BASIC,
         CURLOPT_USERPWD => $config['shop_id'] . ':' . $config['secret_key'],
         CURLOPT_HTTPHEADER => $headers,
+        CURLOPT_SSL_VERIFYPEER => yookassa_ssl_verify_enabled(),
+        CURLOPT_SSL_VERIFYHOST => yookassa_ssl_verify_enabled() ? 2 : 0,
     ]);
 
     if ($payload !== null) {

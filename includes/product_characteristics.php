@@ -67,6 +67,7 @@ function product_characteristics_save(PDO $pdo, int $productId, array $rows): vo
     }
 
     $clean = [];
+    $seen = [];
     $order = 0;
     foreach ($rows as $row) {
         if (!is_array($row)) {
@@ -77,6 +78,11 @@ function product_characteristics_save(PDO $pdo, int $productId, array $rows): vo
         if ($name === '' || $value === '') {
             continue;
         }
+        $dedupeKey = mb_strtolower($name, 'UTF-8') . '|' . mb_strtolower($value, 'UTF-8');
+        if (isset($seen[$dedupeKey])) {
+            continue;
+        }
+        $seen[$dedupeKey] = true;
         $clean[] = [
             'name' => mb_substr($name, 0, 150, 'UTF-8'),
             'value' => mb_substr($value, 0, 255, 'UTF-8'),
@@ -97,4 +103,3 @@ function product_characteristics_save(PDO $pdo, int $productId, array $rows): vo
         $insert->execute([$productId, $item['name'], $item['value'], $item['sort_order']]);
     }
 }
-

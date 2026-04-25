@@ -14,12 +14,12 @@ function admin_try_delete_public_file(string $publicPath): void
     if ($publicPath === '' || $publicPath[0] !== '/') {
         return;
     }
-    $absolutePath = rtrim((string)($_SERVER['DOCUMENT_ROOT'] ?? ''), '/\\') . $publicPath;
+    $absolutePath = admin_public_path_to_absolute($publicPath);
 
     if ($absolutePath !== '' && is_file($absolutePath)) {
 
         if (!@unlink($absolutePath)) {
-            error_log("Не удалось удалить файл: " . $absolutePath);
+            error_log("РќРµ СѓРґР°Р»РѕСЃСЊ СѓРґР°Р»РёС‚СЊ С„Р°Р№Р»: " . $absolutePath);
         }
     }
 }
@@ -32,11 +32,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $productId = admin_safe_int($_POST['product_id'] ?? 0);
 
         if ($productId <= 0) {
-            admin_set_flash('error', 'Некорректный ID товара.');
+            admin_set_flash('error', 'Товар не найден.');
             admin_redirect('/admin/products.php');
         }
 
         try {
+            $categorySlug = 'misc';
+            $stmtCategory = $pdo->prepare(
+                'SELECT c.slug
+                FROM products p
+                LEFT JOIN product_categories pc ON pc.product_id = p.id
+                LEFT JOIN categories c ON c.id = pc.category_id
+                WHERE p.id = ? LIMIT 1'
+            );
+            $stmtCategory->execute([$productId]);
+            $slug = trim((string)($stmtCategory->fetchColumn() ?: ''));
+            if ($slug !== '') {
+                $categorySlug = $slug;
+            }
 
             $stmtPaths = $pdo->prepare(
                 'SELECT image_path FROM product_images WHERE product_id = ?
@@ -65,13 +78,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
 
             $pdo->commit();
+            $productDir = admin_public_path_to_absolute('/assets/product_images/' . $categorySlug . '/' . $productId);
+            admin_remove_dir_recursive($productDir);
             admin_set_flash('success', 'Товар и связанные файлы успешно удалены.');
         } catch (Throwable $e) {
             if ($pdo->inTransaction()) {
                 $pdo->rollBack();
             }
             admin_log_error('products_delete', $e);
-            admin_set_flash('error', 'Ошибка при удалении: ' . $e->getMessage());
+            admin_set_flash('error', 'Ошибки при удалении: ' . $e->getMessage());
         }
 
         admin_redirect('/admin/products.php');
@@ -97,10 +112,10 @@ try {
     $products = $stmt->fetchAll() ?: [];
 } catch (Throwable $e) {
     admin_log_error('products_list', $e);
-    admin_set_flash('error', 'Не удалось загрузить список товаров.');
+    admin_set_flash('error', 'Ошибки при загрузке списка товаров.');
 }
 
-admin_render_header('Товары', 'products');
+admin_render_header('Редактирование товаров', 'products');
 ?>
 
 <section class="admin-table-wrap">
@@ -111,8 +126,8 @@ admin_render_header('Товары', 'products');
 
     <form method="get" class="admin-form-inline">
         <label>
-            Поиск
-            <input type="text" name="q" value="<?php echo admin_e($search); ?>" placeholder="ID, название, описание">
+            Название
+            <input type="text" name="q" value="<?php echo admin_e($search); ?>" placeholder="ID, название или описание">
         </label>
         <button type="submit">Найти</button>
         <?php if ($search !== ''): ?>
@@ -145,7 +160,7 @@ admin_render_header('Товары', 'products');
                             <?php if (!empty($product['image_path'])): ?>
                                 <img class="admin-thumb" src="<?php echo admin_e((string)$product['image_path']); ?>" alt="" width="50">
                             <?php else: ?>
-                                <span>—</span>
+                                <span>Нет изображения</span>
                             <?php endif; ?>
                         </td>
                         <td><?php echo admin_e((string)$product['name']); ?></td>
@@ -154,7 +169,7 @@ admin_render_header('Товары', 'products');
                         <td><?php echo admin_e(date('d.m.Y H:i', strtotime((string)$product['updated_at']))); ?></td>
                         <td class="admin-actions">
                             <a href="/admin/product_edit.php?id=<?php echo admin_e((string)$product['id']); ?>">Редактировать</a>
-                            <form method="post" onsubmit="return confirm('Удалить товар и все связанные файлы?');" style="display:inline;">
+                            <form method="post" onsubmit="return confirm('Вы уверены, что хотите удалить этот товар и все связанные файлы?');" style="display:inline;">
                                 <?php echo admin_csrf_input(); ?>
                                 <input type="hidden" name="action" value="delete">
                                 <input type="hidden" name="product_id" value="<?php echo admin_e((string)$product['id']); ?>">

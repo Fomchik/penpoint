@@ -29,7 +29,7 @@ $userCount = (int)admin_fetch_metric(
     'SELECT COUNT(u.id) FROM users u 
      INNER JOIN roles r ON u.role_id = r.id 
      WHERE r.name = ?',
-    ['client']
+    ['user']
 );
 
 $revenue = admin_fetch_metric(

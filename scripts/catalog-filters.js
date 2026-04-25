@@ -3,22 +3,18 @@
 
     const form = document.getElementById('catalog-filters-form');
     const contentEl = document.getElementById('catalog-content');
+    const resetButton = document.getElementById('catalog-filters-reset');
 
     if (!form || !contentEl) return;
 
     let lastRequestId = 0;
     let activeController = null;
-    
-    const urlParams = new URLSearchParams(window.location.search);
-    let currentSort = urlParams.get('sort') || 'new';
+    let currentSort = (new URLSearchParams(window.location.search)).get('sort') || 'new';
 
     function syncSortUI(value) {
         currentSort = value || 'new';
         const select = document.querySelector('#catalog-sort-form select[name="sort"]');
-        const hidden = document.getElementById('catalog-sort-hidden');
-        
         if (select) select.value = currentSort;
-        if (hidden) hidden.value = currentSort;
     }
 
     function buildQueryParams() {
@@ -32,83 +28,136 @@
         }
 
         params.set('sort', currentSort);
-        params.delete('page');
-
-        return params.toString();
+        return params;
     }
 
-    function applyFilters() {
+    function setLoading(isLoading) {
+        contentEl.style.opacity = isLoading ? '0.5' : '';
+        contentEl.style.pointerEvents = isLoading ? 'none' : '';
+    }
+
+    function updatePickupCounter(total) {
+        const counter = form.querySelector('[data-pickup-counter]');
+        if (!counter) return;
+        counter.textContent = 'Самовывоз сегодня (' + String(Number(total) || 0) + ')';
+    }
+
+    function applyFromUrl(targetUrl) {
         lastRequestId += 1;
         const requestId = lastRequestId;
+        const scrollTopBeforeRequest = window.pageYOffset || document.documentElement.scrollTop || 0;
 
         if (activeController) {
             try { activeController.abort(); } catch (e) {}
         }
         activeController = (typeof AbortController !== 'undefined') ? new AbortController() : null;
 
-        const queryString = buildQueryParams();
-        const url = '/pages/catalog.php?' + queryString;
+        setLoading(true);
 
-        contentEl.style.opacity = '0.5';
-        contentEl.style.pointerEvents = 'none';
-
-        fetch(url, {
+        fetch(targetUrl, {
             headers: { 'X-Requested-With': 'XMLHttpRequest' },
             cache: 'no-store',
             signal: activeController ? activeController.signal : undefined
         })
-        .then(r => r.text())
-        .then(html => {
+        .then(function(response) {
+            return response.text();
+        })
+        .then(function(html) {
             if (requestId !== lastRequestId) return;
 
             const parser = new DOMParser();
             const doc = parser.parseFromString(html, 'text/html');
             const newContent = doc.getElementById('catalog-content');
-
-            if (newContent) {
-                contentEl.innerHTML = newContent.innerHTML;
-                
-                syncSortUI(currentSort);
-                
-                if (window.history && window.history.replaceState) {
-                    window.history.replaceState({}, '', url);
-                }
-
-                if (window.Cart) window.Cart.updateCartBadge();
-                if (window.Favorites) window.Favorites.updateBadge();
+            if (!newContent) return;
+            const meta = doc.querySelector('[data-catalog-meta]');
+            if (meta) {
+                updatePickupCounter(meta.getAttribute('data-pickup-total'));
             }
+
+            contentEl.innerHTML = newContent.innerHTML;
+            if (window.history && window.history.replaceState) {
+                window.history.replaceState({}, '', targetUrl);
+            }
+            window.scrollTo({ top: scrollTopBeforeRequest });
+
+            if (window.Cart) window.Cart.updateCartBadge();
+            if (window.Favorites) window.Favorites.updateBadge();
         })
-        .catch(err => {
-            if (err.name === 'AbortError') return;
-            form.submit();
+        .catch(function(err) {
+            if (err && err.name === 'AbortError') return;
+            window.location.href = targetUrl;
         })
-        .finally(() => {
+        .finally(function() {
             if (requestId !== lastRequestId) return;
-            contentEl.style.opacity = '';
-            contentEl.style.pointerEvents = '';
+            setLoading(false);
         });
     }
 
-    const debounce = (fn, ms) => {
+    function applyFilters() {
+        const params = buildQueryParams();
+        params.delete('page');
+        applyFromUrl('/pages/catalog.php?' + params.toString());
+    }
+
+    const debounce = function(fn, ms) {
         let t;
-        return () => { clearTimeout(t); t = setTimeout(fn, ms); };
+        return function() {
+            clearTimeout(t);
+            t = setTimeout(fn, ms);
+        };
     };
 
     const debouncedApply = debounce(applyFilters, 300);
 
     form.addEventListener('change', debouncedApply);
-    form.addEventListener('input', (e) => {
+    form.addEventListener('input', function(e) {
         if (e.target.matches('.filters__input, .filters__search-input')) {
             debouncedApply();
         }
     });
 
-    document.addEventListener('change', (e) => {
+    document.addEventListener('change', function(e) {
         if (e.target.matches('#catalog-sort-form select[name="sort"]')) {
             syncSortUI(e.target.value);
             applyFilters();
         }
     });
 
+    contentEl.addEventListener('click', function(e) {
+        const link = e.target.closest('.catalog__pagination a');
+        if (!link) return;
+
+        e.preventDefault();
+        const href = link.getAttribute('href') || '';
+        if (!href) return;
+
+        const target = new URL(href, window.location.origin);
+        const params = new URLSearchParams(target.search);
+        const nextSort = params.get('sort');
+        if (nextSort) syncSortUI(nextSort);
+
+        applyFromUrl(target.pathname + '?' + params.toString());
+    });
+
+    if (resetButton) {
+        resetButton.addEventListener('click', function() {
+            const controls = form.querySelectorAll('input, select, textarea');
+            controls.forEach(function(control) {
+                if (control.type === 'checkbox' || control.type === 'radio') {
+                    control.checked = false;
+                } else {
+                    control.value = '';
+                }
+            });
+
+            syncSortUI('new');
+            applyFilters();
+        });
+    }
+
     syncSortUI(currentSort);
+    const initialMeta = contentEl.querySelector('[data-catalog-meta]');
+    if (initialMeta) {
+        updatePickupCounter(initialMeta.getAttribute('data-pickup-total'));
+    }
 })();

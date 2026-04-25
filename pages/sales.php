@@ -80,7 +80,7 @@ foreach ($all_promos as $promo) {
         <?php endif; ?>
 
         <section class="sales-section sales-section--past" aria-label="Завершенные акции">
-            <h2 class="sales-section__title">Завершенные</h2>
+            <h2 class="sales-section__title">Завершенные акции</h2>
             <?php if (!empty($finished_promos)): ?>
                 <div class="sales-grid sales-grid--past">
                     <?php foreach ($finished_promos as $promo): ?>

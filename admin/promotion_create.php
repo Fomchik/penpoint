@@ -39,49 +39,28 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $selectedCategories = admin_promotion_parse_ids($_POST['category_ids'] ?? []);
     $selectedProducts = admin_promotion_parse_ids($_POST['product_ids'] ?? []);
 
-    if ($form['title'] === '') $errors[] = 'Укажите название акции.';
-    if ($form['short_text'] === '') $errors[] = 'Укажите описание акции.';
-    if (!isset($scopeLabels[$form['apply_scope']])) $errors[] = 'Некорректная область применения.';
-    if (!isset($typeLabels[$form['promotion_type']])) $errors[] = 'Некорректный тип акции.';
+    if ($form['title'] === '') $errors[] = 'РЈРєР°Р¶РёС‚Рµ РЅР°Р·РІР°РЅРёРµ Р°РєС†РёРё.';
+    if ($form['short_text'] === '') $errors[] = 'РЈРєР°Р¶РёС‚Рµ РѕРїРёСЃР°РЅРёРµ Р°РєС†РёРё.';
+    if (!isset($scopeLabels[$form['apply_scope']])) $errors[] = 'РќРµРєРѕСЂСЂРµРєС‚РЅР°СЏ РѕР±Р»Р°СЃС‚СЊ РїСЂРёРјРµРЅРµРЅРёСЏ.';
+    if (!isset($typeLabels[$form['promotion_type']])) $errors[] = 'РќРµРєРѕСЂСЂРµРєС‚РЅС‹Р№ С‚РёРї Р°РєС†РёРё.';
 
     $discountPercent = (int)$form['discount_percent'];
-    if ($discountPercent < 1 || $discountPercent > 90) $errors[] = 'Скидка должна быть от 1 до 90.';
-    if ($form['date_start'] === '') $errors[] = 'Укажите дату начала.';
-    if ($form['apply_scope'] === 'categories' && $selectedCategories === []) $errors[] = 'Выберите категории.';
-    if ($form['apply_scope'] === 'products' && $selectedProducts === []) $errors[] = 'Выберите товары.';
+    if ($discountPercent < 1 || $discountPercent > 90) $errors[] = 'РЎРєРёРґРєР° РґРѕР»Р¶РЅР° Р±С‹С‚СЊ РѕС‚ 1 РґРѕ 90.';
+    if ($form['date_start'] === '') $errors[] = 'РЈРєР°Р¶РёС‚Рµ РґР°С‚Сѓ РЅР°С‡Р°Р»Р°.';
+    if ($form['apply_scope'] === 'categories' && $selectedCategories === []) $errors[] = 'Р’С‹Р±РµСЂРёС‚Рµ РєР°С‚РµРіРѕСЂРёРё.';
+    if ($form['apply_scope'] === 'products' && $selectedProducts === []) $errors[] = 'Р’С‹Р±РµСЂРёС‚Рµ С‚РѕРІР°СЂС‹.';
 
     $imagePath = null;
     $imageMain = null;
     $imageList = null;
 
     if ($errors === []) {
-        try {
-            if ($form['promotion_type'] === 'seasonal') {
-                $imageMain = admin_handle_image_upload($_FILES['image_main'] ?? [], [
-                    'target' => 'banners',
-                    'sub_path' => 'seasonal/main/' . date('Y/m'),
-                    'prefix' => 'promo-main',
-                ]);
-                $imageList = admin_handle_image_upload($_FILES['image_list'] ?? [], [
-                    'target' => 'banners',
-                    'sub_path' => 'seasonal/list/' . date('Y/m'),
-                    'prefix' => 'promo-list',
-                ]);
-                if ($imageMain === null || $imageList === null) {
-                    throw new RuntimeException('Для seasonal акции нужны оба изображения.');
-                }
-            } else {
-                $imagePath = admin_handle_image_upload($_FILES['image'] ?? [], [
-                    'target' => 'banners',
-                    'sub_path' => 'regular/' . date('Y/m'),
-                    'prefix' => 'promo-regular',
-                ]);
-                if ($imagePath === null) {
-                    throw new RuntimeException('Для regular акции нужно изображение.');
-                }
+        if ($form['promotion_type'] === 'seasonal') {
+            if (empty($_FILES['image_main']['name']) || empty($_FILES['image_list']['name'])) {
+                $errors[] = 'Для seasonal акции нужны оба изображения.';
             }
-        } catch (Throwable $e) {
-            $errors[] = $e->getMessage();
+        } elseif (empty($_FILES['image']['name'])) {
+            $errors[] = 'Для regular акции нужно изображение.';
         }
     }
 
@@ -108,6 +87,38 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             ]);
 
             $promotionId = (int)$pdo->lastInsertId();
+            if ($form['promotion_type'] === 'seasonal') {
+                $imageMain = admin_handle_image_upload($_FILES['image_main'] ?? [], [
+                    'target' => 'banners',
+                    'sub_path' => (string)$promotionId,
+                    'file_name' => 'main',
+                ]);
+                $imageList = admin_handle_image_upload($_FILES['image_list'] ?? [], [
+                    'target' => 'banners',
+                    'sub_path' => (string)$promotionId,
+                    'file_name' => 'list',
+                ]);
+                if ($imageMain === null || $imageList === null) {
+                    throw new RuntimeException('Seasonal promotion requires both images.');
+                }
+            } else {
+                $imagePath = admin_handle_image_upload($_FILES['image'] ?? [], [
+                    'target' => 'banners',
+                    'sub_path' => (string)$promotionId,
+                    'file_name' => 'list',
+                ]);
+                if ($imagePath === null) {
+                    throw new RuntimeException('Regular promotion requires list image.');
+                }
+            }
+
+            $stmtUpdateImages = $pdo->prepare('UPDATE promotions SET image_path = ?, image_main = ?, image_list = ? WHERE id = ? LIMIT 1');
+            $stmtUpdateImages->execute([
+                $imagePath,
+                $imageMain,
+                $imageList,
+                $promotionId,
+            ]);
             admin_promotion_sync_links($pdo, $promotionId, $form['apply_scope'], $form['apply_scope'] === 'products' ? $selectedProducts : $selectedCategories);
             $pdo->commit();
 
@@ -123,11 +134,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 }
 
-admin_render_header('Создание акции', 'promotions');
+admin_render_header('Новая акция', 'promotions');
 ?>
 <section class="admin-form-wrap">
     <div class="admin-section-head">
-        <h2>Новая акция</h2>
+        <h2>Основная информация</h2>
         <a class="admin-link-btn" href="/admin/promotions.php">К списку</a>
     </div>
 
@@ -140,7 +151,7 @@ admin_render_header('Создание акции', 'promotions');
         <label class="admin-full">Название акции
             <input type="text" name="title" value="<?php echo admin_e($form['title']); ?>" required>
         </label>
-        <label class="admin-full">Описание акции
+        <label class="admin-full">Описание
             <textarea name="short_text" rows="4" required><?php echo admin_e($form['short_text']); ?></textarea>
         </label>
         <label>Размер скидки (%)
@@ -167,13 +178,13 @@ admin_render_header('Создание акции', 'promotions');
             <input type="date" name="date_end" value="<?php echo admin_e($form['date_end']); ?>">
         </label>
 
-        <label class="admin-full" id="regular-image-field">Изображение regular акции
+        <label class="admin-full" id="regular-image-field">Изображение обычной акции
             <input type="file" name="image" accept=".jpg,.jpeg,.png,.webp">
         </label>
-        <label class="admin-full" id="seasonal-main-field">Главное изображение seasonal акции
+        <label class="admin-full" id="seasonal-main-field">Главное изображение сезонной акции
             <input type="file" name="image_main" accept=".jpg,.jpeg,.png,.webp">
         </label>
-        <label class="admin-full" id="seasonal-list-field">Изображение для списка seasonal акции
+        <label class="admin-full" id="seasonal-list-field">Изображение для списка сезонных акций
             <input type="file" name="image_list" accept=".jpg,.jpeg,.png,.webp">
         </label>
 
@@ -202,7 +213,7 @@ admin_render_header('Создание акции', 'promotions');
                     <?php $isSelected = in_array((int)$product['id'], $selectedProducts, true); ?>
                     <div class="list-item admin-list__item <?php echo $isSelected ? 'active' : ''; ?>" data-picker-option data-input-id="promotion-product-<?php echo admin_e((string)$product['id']); ?>" data-filter-text="<?php echo admin_e(mb_strtolower((string)$product['name'] . ' #' . (string)$product['id'])); ?>">
                         <span class="admin-list__item-text">
-                            <span>#<?php echo admin_e((string)$product['id']); ?> · <?php echo admin_e((string)$product['name']); ?></span>
+                            <span>#<?php echo admin_e((string)$product['id']); ?> В· <?php echo admin_e((string)$product['name']); ?></span>
                             <span class="admin-list__item-note">Товар</span>
                         </span>
                     </div>

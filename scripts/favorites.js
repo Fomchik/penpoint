@@ -13,17 +13,36 @@
      * Get favorites from localStorage
      */
     function getFavorites() {
-        const favoritesJson = localStorage.getItem(FAVORITES_STORAGE_KEY);
-        return favoritesJson ? JSON.parse(favoritesJson) : [];
+        try {
+            const favoritesJson = localStorage.getItem(FAVORITES_STORAGE_KEY);
+            const parsed = favoritesJson ? JSON.parse(favoritesJson) : [];
+            if (!Array.isArray(parsed)) {
+                return [];
+            }
+            return parsed.map(function (id) { return Number(id) || 0; }).filter(function (id) { return id > 0; });
+        } catch (e) {
+            return [];
+        }
     }
 
     /**
      * Save favorites to localStorage
      */
     function saveFavorites(favorites) {
-        localStorage.setItem(FAVORITES_STORAGE_KEY, JSON.stringify(favorites));
+        const normalized = Array.from(new Set((Array.isArray(favorites) ? favorites : []).map(function (id) {
+            return Number(id) || 0;
+        }).filter(function (id) {
+            return id > 0;
+        })));
+
+        localStorage.setItem(FAVORITES_STORAGE_KEY, JSON.stringify(normalized));
         updateFavoritesBadge();
         updateWishlistButtons();
+        window.dispatchEvent(new CustomEvent('penpoint:favorites-updated', {
+            detail: {
+                favorites: normalized
+            }
+        }));
     }
 
     /**
@@ -62,6 +81,10 @@
 
         saveFavorites(favorites);
         return !wasFavorite;
+    }
+
+    function clearFavorites() {
+        saveFavorites([]);
     }
 
     /**
@@ -168,6 +191,18 @@
         updateFavoritesBadge();
         updateWishlistButtons();
         initWishlistButtons();
+        window.addEventListener('storage', function (event) {
+            if (event.key !== FAVORITES_STORAGE_KEY) {
+                return;
+            }
+            updateFavoritesBadge();
+            updateWishlistButtons();
+            window.dispatchEvent(new CustomEvent('penpoint:favorites-updated', {
+                detail: {
+                    favorites: getFavorites()
+                }
+            }));
+        });
 
         // Update buttons when page loads
         document.addEventListener('DOMContentLoaded', function() {
@@ -180,6 +215,7 @@
         getFavorites: getFavorites,
         isFavorite: isFavorite,
         toggleFavorite: toggleFavorite,
+        clearFavorites: clearFavorites,
         updateBadge: updateFavoritesBadge
     };
 

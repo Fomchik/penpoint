@@ -14,12 +14,13 @@ $account_link = $base . '/pages/login.php';
 if ($is_logged_in) {
     $account_link = $is_admin ? $base . '/admin/index.php' : $base . '/pages/account.php';
 }
-$current_uri = $_SERVER['REQUEST_URI'];
-$is_home = ($current_uri === $base . '/' || $current_uri === $base . '/index.php' || strpos($current_uri, 'pages/index.php') !== false);
-$is_catalog = (strpos($current_uri, 'catalog.php') !== false);
-$is_sales = (strpos($current_uri, 'sales.php') !== false);
-$is_contacts = (strpos($current_uri, 'contacts.php') !== false);
-$is_admin_page = (strpos($current_uri, '/admin/') !== false);
+$current_uri = (string)($_SERVER['REQUEST_URI'] ?? '/');
+$current_path = (string)(parse_url($current_uri, PHP_URL_PATH) ?: '/');
+$is_home = ($current_path === $base . '/' || $current_path === $base . '/index.php' || strpos($current_path, '/pages/index.php') !== false);
+$is_catalog = (strpos($current_path, 'catalog.php') !== false);
+$is_sales = (strpos($current_path, 'sales.php') !== false);
+$is_contacts = (strpos($current_path, 'contacts.php') !== false);
+$is_admin_page = (strpos($current_path, '/admin/') !== false);
 ?>
 <header class="header">
     <a href="<?php echo $base; ?>/index.php" class="header__logo">
@@ -83,6 +84,15 @@ $is_admin_page = (strpos($current_uri, '/admin/') !== false);
             burger.setAttribute('aria-expanded', expanded ? 'false' : 'true');
             nav.classList.toggle('header__nav--open', !expanded);
             document.body.classList.toggle('header-menu-open', !expanded);
+        });
+
+        nav.addEventListener('click', function (event) {
+            if (!event.target.closest('a')) {
+                return;
+            }
+            burger.setAttribute('aria-expanded', 'false');
+            nav.classList.remove('header__nav--open');
+            document.body.classList.remove('header-menu-open');
         });
     })();
     </script>

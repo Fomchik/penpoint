@@ -6,8 +6,9 @@
   const GEOCACHE_KEY = "penpoint_geocache";
   const GEOCACHE_TTL = 7 * 24 * 60 * 60 * 1000;
   const TARGET_CITY = "Волгоград";
+  const CHECKOUT_DELIVERY_ADDRESS_KEY = "penpoint_checkout_delivery_address";
 
-  const PICKUP_POINTS = [
+  const DEFAULT_PICKUP_POINTS = [
     {
       id: "store",
       name: "Канцария",
@@ -37,6 +38,35 @@
     },
   ];
 
+  function normalizePickupPoints(points) {
+    if (!Array.isArray(points) || points.length === 0) {
+      return DEFAULT_PICKUP_POINTS;
+    }
+
+    const normalized = points
+      .map((point) => {
+        if (!point || typeof point !== "object") return null;
+        const id = String(point.id || "").trim();
+        const name = String(point.name || "").trim();
+        const address = String(point.address || "").trim();
+        if (!id || !name || !address) return null;
+        return {
+          id: id,
+          name: name,
+          address: address,
+          isMainStore: Boolean(point.isMainStore),
+          status: String(point.status || "").trim(),
+          workingHours: String(point.workingHours || DEFAULT_WORKING_HOURS),
+          note: String(point.note || "").trim(),
+        };
+      })
+      .filter((point) => point !== null);
+
+    return normalized.length > 0 ? normalized : DEFAULT_PICKUP_POINTS;
+  }
+
+  const PICKUP_POINTS = normalizePickupPoints(window.APP_PICKUP_POINTS);
+
   let ymapsReady = false;
   let map = null;
   let deliveryPlacemark = null;
@@ -45,6 +75,13 @@
   let userCity = TARGET_CITY;
   let suggestElement = null;
   let suggestDebouncer = null;
+  let yandexMapInitAttempts = 0;
+  const YANDEX_MAP_INIT_MAX_ATTEMPTS = 80;
+  const YANDEX_MAP_RETRY_DELAY = 250;
+  const YANDEX_MAP_SCRIPT_SRC =
+    typeof window.APP_YANDEX_MAPS_SRC === "string"
+      ? String(window.APP_YANDEX_MAPS_SRC || "").trim()
+      : "";
 
   function getGeocache() {
     try {
@@ -165,7 +202,9 @@
     const deliverySelected = document.querySelector(
       'input[name="delivery_type"]:checked',
     );
-    const deliveryPrice = deliverySelected && deliverySelected.value === "delivery" ? 300 : 0;
+    const deliveryPrice = deliverySelected
+      ? parseFloat(deliverySelected.getAttribute("data-delivery-price") || "0") || 0
+      : 0;
     const itemsEl = document.getElementById("checkout-total-items");
     const priceEl = document.getElementById("checkout-total-price");
     const oldEl = document.getElementById("checkout-total-old");
@@ -179,6 +218,10 @@
   }
 
   function setupSubmit() {
+    if (window.__CHECKOUT_PAYMENT_FLOW_ENABLED__) {
+      return;
+    }
+
     const form = document.getElementById("order-form");
     const payload = document.getElementById("cart-payload");
     if (!form || !payload) return;
@@ -220,6 +263,15 @@
       if (geoObject) {
         const coords = geoObject.geometry.getCoordinates();
         const preciseAddress = geoObject.getAddressLine();
+        const city = String(geoObject.getLocalities ? (geoObject.getLocalities()[0] || '') : '').trim();
+        const addressLower = preciseAddress.toLowerCase();
+        if (
+          city &&
+          city.toLowerCase() !== TARGET_CITY.toLowerCase() &&
+          !addressLower.includes(TARGET_CITY.toLowerCase())
+        ) {
+          return null;
+        }
         setGeocache(query, coords);
         return { coords, address: preciseAddress };
       }
@@ -245,8 +297,32 @@
   }
 
   async function initYandexMap() {
-    if (!window.ymaps || !document.getElementById("pickup-map")) {
-      setTimeout(initYandexMap, 100);
+    const mapNode = document.getElementById("pickup-map");
+    if (!mapNode) {
+      return;
+    }
+
+    if (!window.ymaps) {
+      if (YANDEX_MAP_SCRIPT_SRC !== "") {
+        const existingScript = document.querySelector(
+          'script[data-penpoint-yandex-maps="1"]',
+        );
+        if (!existingScript) {
+          const script = document.createElement("script");
+          script.src = YANDEX_MAP_SCRIPT_SRC;
+          script.async = true;
+          script.defer = true;
+          script.dataset.penpointYandexMaps = "1";
+          document.head.appendChild(script);
+        }
+      }
+      yandexMapInitAttempts += 1;
+      if (yandexMapInitAttempts >= YANDEX_MAP_INIT_MAX_ATTEMPTS) {
+        mapNode.innerHTML =
+          '<div class="checkout-map-fallback">Карта временно недоступна. Укажите адрес вручную или выберите пункт из списка.</div>';
+        return;
+      }
+      setTimeout(initYandexMap, YANDEX_MAP_RETRY_DELAY);
       return;
     }
 
@@ -594,10 +670,13 @@
         if (resolved) {
           deliveryAddressInput.value = resolved;
           deliverySelectedText.textContent = resolved;
+          try {
+            sessionStorage.setItem(CHECKOUT_DELIVERY_ADDRESS_KEY, resolved);
+          } catch (e) {}
           closeModal();
         } else {
           alert(
-            "Не удалось определить адрес. Проверьте правильность ввода или уточните адрес.",
+            "Не удалось определить адрес в пределах г. Волгоград. Проверьте правильность ввода или уточните адрес.",
           );
         }
       });
@@ -630,6 +709,18 @@
         selectPickupPoint(availablePoint);
       }
     }
+
+    try {
+      const savedDeliveryAddress =
+        sessionStorage.getItem(CHECKOUT_DELIVERY_ADDRESS_KEY) || "";
+      if (savedDeliveryAddress && deliveryAddressInput && deliverySelectedText) {
+        deliveryAddressInput.value = savedDeliveryAddress;
+        deliverySelectedText.textContent = savedDeliveryAddress;
+        if (deliveryAddressField && !deliveryAddressField.value) {
+          deliveryAddressField.value = savedDeliveryAddress;
+        }
+      }
+    } catch (e) {}
   }
 
     // Функции автодополнения адреса
@@ -747,4 +838,3 @@
     window.addEventListener("penpoint:cart-updated", loadSummary);
   });
 })();
-

@@ -25,23 +25,97 @@
             return item !== '';
         })));
     }
-    function renderProductImageSlider(root, images) {
+
+    function renderProductImage(root, images) {
         const image = root.querySelector('[data-product-image]');
-        const dots = root.querySelector('[data-product-image-dots]');
         if (!image) {
             return;
         }
 
         const uniqueImages = normalizeImages(images);
         if (uniqueImages.length > 0) {
+            root.setAttribute('data-gallery-images', JSON.stringify(uniqueImages));
+            root.setAttribute('data-gallery-index', '0');
             image.src = uniqueImages[0];
         }
+    }
 
-        if (dots) {
-            dots.innerHTML = '';
-            dots.classList.add('product-page__image-dots--hidden');
+    function getGalleryImages(root) {
+        const raw = root.getAttribute('data-gallery-images');
+        if (!raw) {
+            return [];
+        }
+
+        try {
+            return normalizeImages(JSON.parse(raw));
+        } catch (error) {
+            return [];
         }
     }
+
+    function showGalleryImage(root, index) {
+        const image = root.querySelector('[data-product-image]');
+        if (!image) {
+            return;
+        }
+
+        const images = getGalleryImages(root);
+        if (images.length === 0) {
+            return;
+        }
+
+        const nextIndex = ((index % images.length) + images.length) % images.length;
+        root.setAttribute('data-gallery-index', String(nextIndex));
+        image.src = images[nextIndex];
+    }
+
+    function initImageSwipe(root) {
+        const slider = root.querySelector('[data-product-image-slider]');
+        if (!slider || slider.getAttribute('data-swipe-ready') === '1') {
+            return;
+        }
+        slider.setAttribute('data-swipe-ready', '1');
+
+        let startX = 0;
+        let startY = 0;
+        let tracking = false;
+
+        slider.addEventListener('touchstart', function (event) {
+            if (!event.touches || event.touches.length !== 1) {
+                tracking = false;
+                return;
+            }
+
+            const point = event.touches[0];
+            startX = point.clientX;
+            startY = point.clientY;
+            tracking = true;
+        }, { passive: true });
+
+        slider.addEventListener('touchend', function (event) {
+            if (!tracking || !event.changedTouches || event.changedTouches.length !== 1) {
+                return;
+            }
+
+            tracking = false;
+            const point = event.changedTouches[0];
+            const diffX = point.clientX - startX;
+            const diffY = point.clientY - startY;
+            if (Math.abs(diffX) < 35 || Math.abs(diffX) <= Math.abs(diffY)) {
+                return;
+            }
+
+            const images = getGalleryImages(root);
+            if (images.length <= 1) {
+                return;
+            }
+
+            const currentIndex = parseInt(root.getAttribute('data-gallery-index') || '0', 10) || 0;
+            const nextIndex = diffX < 0 ? currentIndex + 1 : currentIndex - 1;
+            showGalleryImage(root, nextIndex);
+        }, { passive: true });
+    }
+
     function collectSelections(root) {
         const result = {};
         root.querySelectorAll('.product-page__variant-option.is-active').forEach(function (button) {
@@ -50,8 +124,28 @@
         return result;
     }
 
+    function mapAttributeLabel(key) {
+        const map = {
+            color: 'Цвет',
+            size: 'Размер',
+            format: 'Формат',
+            volume: 'Объем',
+            thickness: 'Толщина',
+            set_quantity: 'Количество в наборе',
+            sheet_quantity: 'Количество листов',
+            paper_density: 'Плотность бумаги',
+            paper_type: 'Тип бумаги',
+            binding_type: 'Тип крепления',
+            cover_type: 'Тип обложки',
+            hardness: 'Жесткость'
+        };
+        const normalized = String(key || '').trim().toLowerCase();
+        return map[normalized] || String(key || '');
+    }
+
     function renderVariantAttributes(root, attributes) {
         const holder = root.querySelector('[data-product-spec-attributes]');
+        const emptyHolder = root.querySelector('[data-product-spec-empty]');
         if (!holder) {
             return;
         }
@@ -62,16 +156,23 @@
 
         if (entries.length === 0) {
             holder.innerHTML = '';
+            if (emptyHolder && emptyHolder.getAttribute('data-static-specs') !== '1') {
+                emptyHolder.hidden = false;
+            }
             return;
         }
 
         holder.innerHTML = entries.map(function (item) {
             return '' +
                 '<tr>' +
-                    '<td class="product-page__spec-name">' + escapeHtml(item[0]) + '</td>' +
+                    '<td class="product-page__spec-name">' + escapeHtml(mapAttributeLabel(item[0])) + '</td>' +
                     '<td class="product-page__spec-value">' + escapeHtml(item[1]) + '</td>' +
                 '</tr>';
         }).join('');
+
+        if (emptyHolder) {
+            emptyHolder.hidden = true;
+        }
     }
 
     function applyState(root, state) {
@@ -95,18 +196,24 @@
             basePrice.textContent = state.base_price_formatted || formatPrice(state.base_price);
             basePrice.classList.toggle('visually-hidden', !showBase);
         }
-        if (stock) stock.textContent = String(Number(state.stock) || 0) + ' шт';
+
+        const hasUnavailableVariant = Boolean(state.has_variants) && (state.variant_id === null || state.variant_id === undefined);
+        const inStock = Boolean(state.in_stock) && !hasUnavailableVariant;
+        if (stock) {
+            stock.textContent = String(hasUnavailableVariant ? 0 : (Number(state.stock) || 0)) + ' шт';
+        }
+
         renderVariantAttributes(root, state.attributes || {});
 
         const images = Array.isArray(state.images) && state.images.length ? state.images : (state.image ? [state.image] : []);
-        renderProductImageSlider(root, images);
-        
-        // При смене варианта сбрасываем слайдер на первое изображение
+        renderProductImage(root, images);
+
         if (addButton) {
             addButton.setAttribute('data-product-price', String(Number(state.price) || 0));
             addButton.setAttribute('data-product-old-price', String(Number(state.base_price) || 0));
             addButton.setAttribute('data-variant-id', state.variant_id === null || state.variant_id === undefined ? '' : String(Number(state.variant_id) || 0));
-            addButton.disabled = !state.in_stock;
+            addButton.disabled = !inStock;
+            addButton.title = hasUnavailableVariant ? 'Выбранный вариант больше недоступен' : '';
         }
     }
 
@@ -227,7 +334,7 @@
         if (root.querySelectorAll('.product-page__variant-option').length === 0) {
             const initialImages = parseInitialProductImages(root);
             if (initialImages.length > 0) {
-                renderProductImageSlider(root, initialImages);
+                renderProductImage(root, initialImages);
             }
         }
 
@@ -275,102 +382,6 @@
         });
     }
 
-    function renderReview(review) {
-        const stars = [];
-        for (let i = 1; i <= 5; i += 1) {
-            stars.push(
-                '<span class="product-review__star' + (i <= Number(review.rating) ? ' is-active' : '') + '">' +
-                '<img src="/assets/icons/star.svg" alt="" width="16" height="16">' +
-                '</span>'
-            );
-        }
-
-        return '' +
-            '<article class="product-review">' +
-                '<div class="product-review__head">' +
-                    '<strong>' + escapeHtml(review.user_name) + '</strong>' +
-                    '<span>' + escapeHtml(review.created_at_formatted) + '</span>' +
-                '</div>' +
-                '<div class="product-review__rating">' + stars.join('') + '</div>' +
-                '<div class="product-review__text">' + escapeHtml(review.comment).replace(/\n/g, '<br>') + '</div>' +
-            '</article>';
-    }
-
-    function initReviews(root) {
-        const form = root.querySelector('[data-review-form]');
-        if (!form) {
-            return;
-        }
-
-        const message = form.querySelector('[data-review-message]');
-        const stars = form.querySelectorAll('[data-rating-value]');
-        const ratingInput = form.querySelector('[data-review-rating-input]');
-        const list = root.querySelector('[data-review-list]');
-        const submitUrl = root.getAttribute('data-review-submit-url');
-
-        function setRating(value) {
-            ratingInput.value = String(value);
-            stars.forEach(function (button) {
-                button.classList.toggle('is-active', Number(button.getAttribute('data-rating-value')) <= value);
-            });
-        }
-
-        stars.forEach(function (button) {
-            button.addEventListener('click', function () {
-                setRating(Number(button.getAttribute('data-rating-value')) || 0);
-            });
-        });
-
-        form.addEventListener('submit', function (event) {
-            event.preventDefault();
-            const productId = parseInt(form.querySelector('[name="product_id"]').value, 10) || 0;
-            const commentField = form.querySelector('[name="comment"]');
-            const payload = {
-                product_id: productId,
-                rating: parseInt(ratingInput.value, 10) || 0,
-                comment: commentField ? commentField.value : ''
-            };
-
-            fetch((window.appResolvePath || function (path) { return String(path || ''); })(submitUrl), {
-                method: 'POST',
-                credentials: 'same-origin',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Accept': 'application/json',
-                    'X-CSRF-Token': window.APP_CSRF_TOKEN || ''
-                },
-                body: JSON.stringify(payload)
-            }).then(function (response) {
-                return response.json().then(function (json) {
-                    return { ok: response.ok, json: json };
-                });
-            }).then(function (result) {
-                if (!result.ok || !result.json.success) {
-                    throw new Error(result.json.message || 'Не удалось сохранить отзыв.');
-                }
-
-                if (message) {
-                    message.textContent = 'Отзыв сохранён.';
-                }
-                if (list) {
-                    const empty = list.querySelector('.product-reviews__empty');
-                    if (empty) {
-                        empty.remove();
-                    }
-                    list.insertAdjacentHTML('afterbegin', renderReview(result.json.review));
-                }
-                form.classList.add('product-reviews__form--disabled');
-                form.querySelectorAll('textarea, button[type="submit"]').forEach(function (field) {
-                    field.disabled = true;
-                });
-            }).catch(function (error) {
-                if (message) {
-                    message.textContent = error.message;
-                }
-            });
-        });
-    }
-
     document.addEventListener('DOMContentLoaded', function () {
         initTabs();
         initColors();
@@ -379,7 +390,7 @@
             initQty(root);
             initDynamicOptions(root);
             initShare(root);
-            initReviews(root);
+            initImageSwipe(root);
         }
     });
 })();

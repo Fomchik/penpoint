@@ -63,6 +63,20 @@
             margin-bottom: 24px;
             color: #2e2e2e;
         }
+        .account-content__action {
+            margin-bottom: 16px;
+            padding: 8px 12px;
+            border: 1px solid #e5e5e5;
+            border-radius: 6px;
+            background: #fff;
+            color: #666;
+            cursor: pointer;
+            transition: border-color 0.2s ease, color 0.2s ease;
+        }
+        .account-content__action:hover {
+            border-color: #D55204;
+            color: #D55204;
+        }
         .account-section {
             display: none;
         }

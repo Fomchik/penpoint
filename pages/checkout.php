@@ -14,6 +14,10 @@ $order_error = '';
 $order_success = '';
 $payment_return = isset($_GET['payment_return']) ? '1' : '0';
 $payment_status = (string)($_GET['payment_status'] ?? '');
+$yandex_maps_api_key = trim(app_env('YANDEX_MAPS_API_KEY', ''));
+$yandex_maps_src = $yandex_maps_api_key !== ''
+    ? ('https://api-maps.yandex.ru/2.1/?apikey=' . rawurlencode($yandex_maps_api_key) . '&lang=ru_RU')
+    : '';
 
 function checkout_is_ajax_request(): bool
 {
@@ -32,8 +36,54 @@ function checkout_json_response(array $payload, int $status = 200): void
 
 function create_guest_order_user(PDO $pdo, string $customer_name, string $customer_phone, string $customer_email): int
 {
-    $emailBase = filter_var($customer_email, FILTER_VALIDATE_EMAIL)
-        ? strtolower($customer_email)
+    $normalizedPhone = preg_replace('/\D+/u', '', $customer_phone) ?? '';
+    $normalizedEmail = filter_var($customer_email, FILTER_VALIDATE_EMAIL)
+        ? mb_strtolower(trim($customer_email), 'UTF-8')
+        : '';
+
+    if ($normalizedEmail !== '') {
+        try {
+            $stmt = $pdo->prepare(
+                "SELECT id, phone
+                 FROM users
+                 WHERE LOWER(email) = LOWER(?)
+                 ORDER BY id DESC
+                 LIMIT 5"
+            );
+            $stmt->execute([$normalizedEmail]);
+            foreach ($stmt->fetchAll() ?: [] as $row) {
+                $rowPhone = preg_replace('/\D+/u', '', (string)($row['phone'] ?? '')) ?? '';
+                if ($normalizedPhone === '' || $rowPhone === '' || $rowPhone === $normalizedPhone) {
+                    return (int)$row['id'];
+                }
+            }
+        } catch (Throwable $e) {
+            error_log('Guest user search by email error: ' . $e->getMessage());
+        }
+    }
+
+    if ($normalizedPhone !== '') {
+        try {
+            $stmt = $pdo->prepare(
+                "SELECT id, phone
+                 FROM users
+                 WHERE role_id = 2 AND phone IS NOT NULL AND phone <> ''
+                 ORDER BY id DESC"
+            );
+            $stmt->execute();
+            foreach ($stmt->fetchAll() ?: [] as $row) {
+                $rowPhone = preg_replace('/\D+/u', '', (string)($row['phone'] ?? '')) ?? '';
+                if ($rowPhone !== '' && $rowPhone === $normalizedPhone) {
+                    return (int)$row['id'];
+                }
+            }
+        } catch (Throwable $e) {
+            error_log('Guest user search by phone error: ' . $e->getMessage());
+        }
+    }
+
+    $emailBase = $normalizedEmail !== ''
+        ? $normalizedEmail
         : ('guest+' . time() . '.' . random_int(1000, 9999) . '@penpoint.local');
     $email = $emailBase;
     $suffix = 1;
@@ -60,6 +110,85 @@ function create_guest_order_user(PDO $pdo, string $customer_name, string $custom
     return (int)$pdo->lastInsertId();
 }
 
+function checkout_request_token(): string
+{
+    if (!isset($_SESSION['checkout_request_token']) || !is_string($_SESSION['checkout_request_token']) || $_SESSION['checkout_request_token'] === '') {
+        $_SESSION['checkout_request_token'] = bin2hex(random_bytes(16));
+    }
+    return $_SESSION['checkout_request_token'];
+}
+
+function checkout_rotate_request_token(): string
+{
+    $_SESSION['checkout_request_token'] = bin2hex(random_bytes(16));
+    return $_SESSION['checkout_request_token'];
+}
+
+function checkout_lock_and_validate_stock(PDO $pdo, array $items): void
+{
+    if ($items === []) {
+        throw new RuntimeException('Корзина пуста.');
+    }
+
+    $productIds = [];
+    $variantIds = [];
+    foreach ($items as $item) {
+        $productId = (int)($item['product_id'] ?? 0);
+        if ($productId > 0) {
+            $productIds[$productId] = $productId;
+        }
+        if (isset($item['variant_id']) && $item['variant_id'] !== null) {
+            $variantId = (int)$item['variant_id'];
+            if ($variantId > 0) {
+                $variantIds[$variantId] = $variantId;
+            }
+        }
+    }
+
+    if ($productIds !== []) {
+        $placeholders = implode(',', array_fill(0, count($productIds), '?'));
+        $stmtProducts = $pdo->prepare("SELECT id, stock_quantity FROM products WHERE id IN ($placeholders) FOR UPDATE");
+        $stmtProducts->execute(array_values($productIds));
+    }
+
+    if ($variantIds !== []) {
+        $placeholders = implode(',', array_fill(0, count($variantIds), '?'));
+        $stmtVariants = $pdo->prepare("SELECT id, product_id, stock_quantity FROM product_variants WHERE id IN ($placeholders) FOR UPDATE");
+        $stmtVariants->execute(array_values($variantIds));
+    }
+
+    if ($productIds !== []) {
+        $placeholders = implode(',', array_fill(0, count($productIds), '?'));
+        $stmtParameterStocks = $pdo->prepare(
+            "SELECT pv.id
+             FROM product_parameter_values pv
+             INNER JOIN product_parameters p ON p.id = pv.parameter_id
+             WHERE p.product_id IN ($placeholders)
+             FOR UPDATE"
+        );
+        $stmtParameterStocks->execute(array_values($productIds));
+    }
+
+    foreach ($items as $item) {
+        $productId = (int)($item['product_id'] ?? 0);
+        if ($productId <= 0) {
+            throw new RuntimeException('Некорректный товар в корзине.');
+        }
+
+        $variantId = isset($item['variant_id']) && $item['variant_id'] !== null ? (int)$item['variant_id'] : null;
+        $quantity = max(1, (int)($item['quantity'] ?? 1));
+        $attributes = isset($item['attributes']) && is_array($item['attributes']) ? $item['attributes'] : [];
+        $stockLimit = cart_stock_limit($productId, $variantId, $attributes);
+
+        if ($stockLimit <= 0) {
+            throw new RuntimeException('Один из товаров закончился на складе. Обновите корзину.');
+        }
+        if ($quantity > $stockLimit) {
+            throw new RuntimeException('Недостаточно остатков для оформления заказа. Обновите корзину.');
+        }
+    }
+}
+
 function checkout_delivery_methods(PDO $pdo): array
 {
     $stmt = $pdo->query('SELECT id, name, price FROM delivery_methods ORDER BY id ASC');
@@ -82,8 +211,57 @@ function checkout_base_url(): string
     return $scheme . '://' . $host;
 }
 
+$checkout_delivery_methods_map = [];
+$pickup_method_default = null;
+$delivery_method_default = null;
+$pickup_price_default = 0.0;
+$delivery_price_default = 0.0;
+$checkout_pickup_points = [
+    [
+        'id' => 'store',
+        'name' => 'Канцария',
+        'address' => 'улица Новороссийская, 67',
+        'isMainStore' => true,
+        'status' => 'temporarily_closed',
+        'workingHours' => 'ПН-ПТ: 09:00-21:00, СБ-ВС: 10:00-22:00',
+        'note' => 'Магазин откроется в ближайшее время',
+    ],
+    [
+        'id' => 'cdek_zhukova',
+        'name' => 'CDEK',
+        'address' => 'просп. Маршала Жукова, 5',
+        'workingHours' => 'ПН-ПТ: 10:00-21:00, СБ-ВС: 10:00-20:00',
+    ],
+    [
+        'id' => 'post_rionskaya',
+        'name' => 'Почта России',
+        'address' => 'улица Рионская, 3',
+        'workingHours' => 'ВТ-СБ: 09:00-18:00, ПН,ВС: выходной',
+    ],
+    [
+        'id' => 'cdek_semy_vetrov',
+        'name' => 'CDEK',
+        'address' => 'Семь Ветров, бул. 30-летия Победы, 44',
+        'workingHours' => 'ПН-ПТ: 10:00-21:00, СБ-ВС: 10:00-20:00',
+    ],
+];
+try {
+    $checkout_delivery_methods_map = checkout_delivery_methods($pdo);
+    $pickup_method_default = $checkout_delivery_methods_map[1] ?? reset($checkout_delivery_methods_map) ?: null;
+    $delivery_method_default = $checkout_delivery_methods_map[2] ?? $pickup_method_default;
+    $pickup_price_default = round((float)($pickup_method_default['price'] ?? 0), 2);
+    $delivery_price_default = round((float)($delivery_method_default['price'] ?? 0), 2);
+} catch (Throwable $e) {
+    error_log('Checkout delivery methods load error: ' . $e->getMessage());
+}
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     app_validate_csrf_or_fail();
+    $requestToken = trim((string)($_POST['checkout_request_token'] ?? ''));
+    $sessionToken = (string)($_SESSION['checkout_request_token'] ?? '');
+    $processedTokens = isset($_SESSION['checkout_processed_tokens']) && is_array($_SESSION['checkout_processed_tokens'])
+        ? $_SESSION['checkout_processed_tokens']
+        : [];
 
     $customer_name = trim((string)($_POST['customer_name'] ?? ''));
     $customer_phone = trim((string)($_POST['customer_phone'] ?? ''));
@@ -99,16 +277,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         return !empty($item['available']) && (int)($item['quantity'] ?? 0) > 0;
     }));
 
-    try {
-        $delivery_methods = checkout_delivery_methods($pdo);
-        $pickup_method = $delivery_methods[1] ?? reset($delivery_methods);
-        $delivery_method = $delivery_methods[2] ?? ($delivery_methods[1] ?? null);
-    } catch (Throwable $e) {
-        $pickup_method = null;
-        $delivery_method = null;
-    }
+    $pickup_method = $pickup_method_default;
+    $delivery_method = $delivery_method_default;
 
-    if ($available_items === []) {
+    if ($requestToken === '' || $sessionToken === '' || !hash_equals($sessionToken, $requestToken)) {
+        $order_error = 'Форма устарела. Обновите страницу и попробуйте снова.';
+    } elseif (isset($processedTokens[$requestToken])) {
+        $order_error = 'Заказ уже обрабатывается. Проверьте историю заказов.';
+    } elseif ($available_items === []) {
         $order_error = 'Корзина пуста. Добавьте товары перед оформлением заказа.';
     } elseif ($customer_name === '' || $customer_phone === '') {
         $order_error = 'Укажите имя и телефон для связи.';
@@ -136,6 +312,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         try {
             $pdo->beginTransaction();
+            checkout_lock_and_validate_stock($pdo, $available_items);
 
             $order_user_id = $is_logged_in ? $user_id : create_guest_order_user($pdo, $customer_name, $customer_phone, $customer_email);
             $status_id = 1;
@@ -187,10 +364,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
 
             $pdo->commit();
+            $_SESSION['checkout_processed_tokens'][$requestToken] = [
+                'order_id' => $order_id,
+                'at' => time(),
+            ];
+            if (count($_SESSION['checkout_processed_tokens']) > 20) {
+                $_SESSION['checkout_processed_tokens'] = array_slice($_SESSION['checkout_processed_tokens'], -20, null, true);
+            }
+            checkout_rotate_request_token();
 
             $confirmation_url = '';
             if ($payment_method === 'online') {
                 try {
+                    $idempotenceKey = 'order-' . $order_id . '-payment-create';
                     $payment = yookassa_api_request('POST', '/payments', [
                         'amount' => [
                             'value' => number_format($total_price, 2, '.', ''),
@@ -205,7 +391,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         'metadata' => [
                             'order_id' => $order_id,
                         ],
-                    ], bin2hex(random_bytes(16)));
+                    ], $idempotenceKey);
 
                     $confirmation_url = (string)($payment['confirmation']['confirmation_url'] ?? '');
                     $payment_id = (string)($payment['id'] ?? '');
@@ -214,8 +400,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         throw new RuntimeException('Платёжный шлюз вернул неполные данные.');
                     }
 
-                    $stmtUpdate = $pdo->prepare('UPDATE orders SET payment_id = ?, payment_status = ? WHERE id = ? LIMIT 1');
-                    $stmtUpdate->execute([$payment_id, 'pending_payment', $order_id]);
+                    $stmtUpdate = $pdo->prepare('UPDATE orders SET payment_id = ?, payment_idempotence_key = ?, payment_status = ? WHERE id = ? LIMIT 1');
+                    $stmtUpdate->execute([$payment_id, $idempotenceKey, 'pending_payment', $order_id]);
                 } catch (Throwable $e) {
                     $stmtFail = $pdo->prepare("UPDATE orders SET payment_status = 'failed' WHERE id = ? LIMIT 1");
                     $stmtFail->execute([$order_id]);
@@ -225,7 +411,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 cart_clear();
             }
 
-            if ($is_ajax) {
+if ($is_ajax) {
                 checkout_json_response([
                     'success' => true,
                     'order_id' => $order_id,
@@ -233,6 +419,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     'confirmation_url' => $confirmation_url,
                     'redirect_url' => $payment_method === 'on_delivery' ? '/pages/account.php?tab=orders' : '',
                 ]);
+            }
+
+            if (!$is_ajax && $payment_method === 'online' && $confirmation_url !== '') {
+                header('Location: ' . $confirmation_url);
+                exit;
             }
 
             $order_success = $payment_method === 'on_delivery'
@@ -243,7 +434,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $pdo->rollBack();
             }
             error_log('Checkout error: ' . $e->getMessage());
-            $order_error = 'Не удалось оформить заказ. Попробуйте позже.';
+            if ($payment_method === 'online') {
+                $order_error = 'Платежный шлюз временно недоступен, выберите оплату при получении или попробуйте позже.';
+            } else {
+                $order_error = 'Не удалось оформить заказ. Попробуйте позже.';
+            }
         }
     }
 
@@ -254,6 +449,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         ], 422);
     }
 }
+$checkout_form_token = checkout_request_token();
 ?>
 <!DOCTYPE html>
 <html lang="ru">
@@ -268,7 +464,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     <link rel="stylesheet" href="/styles/header.css">
     <link rel="stylesheet" href="/styles/footer.css">
     <link rel="stylesheet" href="/styles/checkout.css">
-    <script src="https://api-maps.yandex.ru/2.1/?apikey=7227d584-ec4b-465b-9bc1-f9efdfa096b5&lang=ru_RU" defer></script>
+    <?php if ($yandex_maps_src !== ''): ?>
+        <script src="<?php echo htmlspecialchars($yandex_maps_src, ENT_QUOTES, 'UTF-8'); ?>" defer></script>
+    <?php endif; ?>
+    <script>
+        window.APP_YANDEX_MAPS_SRC = <?php echo json_encode($yandex_maps_src, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES); ?>;
+        window.APP_PICKUP_POINTS = <?php echo json_encode($checkout_pickup_points, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES); ?>;
+    </script>
     <title>Оформление заказа — Канцария</title>
 </head>
 <body>
@@ -310,10 +512,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         <h2 class="checkout-step__title"><span class="checkout-step__idx">2</span>Выберите способ получения</h2>
                         <div class="checkout-tabs" id="delivery-tabs">
                             <label class="checkout-tab checkout-tab--active">
-                                <input type="radio" name="delivery_type" value="pickup" checked> Самовывоз
+                                <input type="radio" name="delivery_type" value="pickup" data-delivery-price="<?php echo htmlspecialchars((string)$pickup_price_default, ENT_QUOTES, 'UTF-8'); ?>" checked> Самовывоз
                             </label>
                             <label class="checkout-tab">
-                                <input type="radio" name="delivery_type" value="delivery"> Курьером
+                                <input type="radio" name="delivery_type" value="delivery" data-delivery-price="<?php echo htmlspecialchars((string)$delivery_price_default, ENT_QUOTES, 'UTF-8'); ?>"> Курьером
                             </label>
                         </div>
                         <div id="pickup-block" class="pickup-card">
@@ -352,12 +554,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     <input type="hidden" name="pickup_point" id="pickup-point-input" value="">
                     <input type="hidden" name="delivery_address" id="delivery-address-input" value="">
                     <input type="hidden" name="cart_payload" id="cart-payload" value="">
+                    <input type="hidden" name="checkout_request_token" value="<?php echo htmlspecialchars($checkout_form_token, ENT_QUOTES, 'UTF-8'); ?>">
 
                     <p class="checkout-agree">
                         Подтверждая заказ, Вы даёте согласие на обработку персональных данных в соответствии с
                         <a href="/pages/privacy.php" class="checkout-agree__link">политикой конфиденциальности</a>
                     </p>
-                    <button type="submit" class="checkout-submit">Подтвердить заказ</button>
+                    <button type="submit" class="checkout-submit" data-default-text="Подтвердить заказ">Подтвердить заказ</button>
                 </form>
             </section>
 
@@ -411,7 +614,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     </div>
 
     <?php include __DIR__ . '/../includes/footer.php'; ?>
-    <script src="/scripts/checkout.js" defer></script>
-    <script src="/scripts/checkout-payment.js" defer></script>
+    <script type="module" src="/scripts/checkout/main.js"></script>
+    <script nomodule src="/scripts/checkout.js" defer></script>
+    <script nomodule src="/scripts/checkout-payment.js" defer></script>
 </body>
 </html>

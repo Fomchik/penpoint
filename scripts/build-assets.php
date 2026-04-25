@@ -7,12 +7,16 @@ $jsDir = $root . '/scripts';
 $adminAssetsDir = $root . '/admin/assets';
 $minCssDir = $root . '/min_css';
 $minJsDir = $root . '/min_js';
+$minModulesDir = $minJsDir . '/modules';
 
 if (!is_dir($minCssDir)) {
     mkdir($minCssDir, 0755, true);
 }
 if (!is_dir($minJsDir)) {
     mkdir($minJsDir, 0755, true);
+}
+if (!is_dir($minModulesDir)) {
+    mkdir($minModulesDir, 0755, true);
 }
 
 function app_collect_files(string $dir, string $ext): array
@@ -65,7 +69,6 @@ function app_minify_css(string $css): string
 
 function app_minify_js(string $js): string
 {
-    $js = preg_replace('#/\*.*?\*/#s', '', $js) ?? $js;
     $lines = preg_split('/\R/u', $js) ?: [];
     $clean = [];
     foreach ($lines as $line) {
@@ -79,6 +82,21 @@ function app_minify_js(string $js): string
         $clean[] = rtrim((string)$line);
     }
     return trim(implode("\n", $clean));
+}
+
+function app_is_es_module(string $js): bool
+{
+    return (bool)preg_match('/^\s*(import|export)\b/m', $js);
+}
+
+function app_relative_path(string $root, string $file): string
+{
+    $normalizedRoot = str_replace('\\', '/', rtrim($root, '/\\'));
+    $normalizedFile = str_replace('\\', '/', $file);
+    if (str_starts_with($normalizedFile, $normalizedRoot . '/')) {
+        return substr($normalizedFile, strlen($normalizedRoot) + 1);
+    }
+    return ltrim($normalizedFile, '/');
 }
 
 $cssFiles = array_values(array_unique(array_merge(
@@ -97,12 +115,37 @@ foreach ($cssFiles as $file) {
 }
 
 $jsOutput = '';
+$skippedModules = [];
+$copiedModules = [];
 foreach ($jsFiles as $file) {
+    $source = app_read_file($file);
+    if (app_is_es_module($source)) {
+        $relative = app_relative_path($root, $file);
+        $target = $minModulesDir . '/' . str_replace('\\', '/', $relative);
+        $targetDir = dirname($target);
+        if (!is_dir($targetDir)) {
+            mkdir($targetDir, 0755, true);
+        }
+        file_put_contents($target, $source);
+        $copiedModules[] = $relative;
+        continue;
+    }
     $jsOutput .= "/* " . str_replace($root . '/', '', $file) . " */\n";
-    $jsOutput .= app_minify_js(app_read_file($file)) . "\n";
+    $jsOutput .= app_minify_js($source) . "\n";
 }
 
 file_put_contents($minCssDir . '/app.min.css', $cssOutput);
 file_put_contents($minJsDir . '/app.min.js', $jsOutput);
 
 echo "Built min_css/app.min.css and min_js/app.min.js\n";
+if ($copiedModules !== []) {
+    echo "Copied ES modules to min_js/modules (not bundled into app.min.js):\n";
+    foreach ($copiedModules as $modulePath) {
+        echo " - " . $modulePath . "\n";
+    }
+} elseif ($skippedModules !== []) {
+    echo "Skipped ES modules (import/export) from app.min.js:\n";
+    foreach ($skippedModules as $modulePath) {
+        echo " - " . $modulePath . "\n";
+    }
+}
